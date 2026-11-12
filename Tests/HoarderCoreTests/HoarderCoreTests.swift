@@ -3,23 +3,14 @@ import Testing
 @testable import HoarderCore
 
 @Test func parsesWorktreePorcelainSkippingMain() {
-    let porcelain = """
-    worktree /repo
-    HEAD abc
-    branch refs/heads/main
-
-    worktree /wt/feature
-    HEAD def
-    branch refs/heads/feat/x
-
-    worktree /wt/detached
-    HEAD 123
-    detached
-    locked reason here
-
-    """
+    let blocks = [
+        ["worktree /repo", "HEAD abc", "branch refs/heads/main"],
+        ["worktree /wt/new\nline", "HEAD def", "branch refs/heads/feat/x"],
+        ["worktree /wt/detached", "HEAD 123", "detached", "locked reason here"],
+    ]
+    let porcelain = blocks.map { $0.map { $0 + "\0" }.joined() + "\0" }.joined()
     #expect(WorktreeScanner.parse(porcelain: porcelain) == [
-        .init(path: "/wt/feature", branch: "feat/x"),
+        .init(path: "/wt/new\nline", branch: "feat/x"),
         .init(path: "/wt/detached", branch: nil, locked: true),
     ])
 }
@@ -60,15 +51,19 @@ func classifiesWorktrees(present: Bool, locked: Bool, dirty: Bool, merged: Bool,
 }
 
 @Test func alertsOncePerDipAndAgainAfterSnooze() {
-    let limit: Int64 = 40
+    let gb: Int64 = 1_000_000_000
+    let limit = 40 * gb
     let now = Date.now
     var state = AlertState()
-    #expect(state.evaluate(free: 50, limit: limit, now: now) == false)
-    #expect(state.evaluate(free: 30, limit: limit, now: now) == true)
-    #expect(state.evaluate(free: 25, limit: limit, now: now) == false)    // still the same dip
+    #expect(state.evaluate(free: 50 * gb, limit: limit, now: now) == false)
+    #expect(state.evaluate(free: 30 * gb, limit: limit, now: now) == true)
+    #expect(state.evaluate(free: 25 * gb, limit: limit, now: now) == false)   // still the same dip
+    #expect(state.evaluate(free: 41 * gb, limit: limit, now: now) == false)   // inside the margin, stays fired
+    #expect(state.evaluate(free: 39 * gb, limit: limit, now: now) == false)
     state.snooze(until: now.addingTimeInterval(60))
-    #expect(state.evaluate(free: 25, limit: limit, now: now) == false)    // snoozed
-    #expect(state.evaluate(free: 25, limit: limit, now: now.addingTimeInterval(61)) == true)  // snooze over, still low
-    #expect(state.evaluate(free: 45, limit: limit, now: now) == false)    // recovered, re-arms
-    #expect(state.evaluate(free: 30, limit: limit, now: now) == true)
+    #expect(state.evaluate(free: 25 * gb, limit: limit, now: now) == false)   // snoozed
+    #expect(state.evaluate(free: 25 * gb, limit: limit, now: now.addingTimeInterval(61)) == true)  // snooze over
+    state.snooze(until: now.addingTimeInterval(60))
+    #expect(state.evaluate(free: 45 * gb, limit: limit, now: now) == false)   // recovered: re-arms, ends snooze
+    #expect(state.evaluate(free: 30 * gb, limit: limit, now: now) == true)
 }

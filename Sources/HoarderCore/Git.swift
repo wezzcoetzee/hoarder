@@ -8,9 +8,9 @@ enum Git {
         let output = await Shell.run("find", roots + [
             "-maxdepth", "6",
             "(", "-name", "node_modules", "-o", "-name", ".build", "-o", "-name", "Library", ")", "-prune",
-            "-o", "-name", ".git", "-print", "-prune",
+            "-o", "-name", ".git", "-print0", "-prune",
         ])
-        return output.stdout.split(separator: "\n").map(String.init)
+        return output.stdout.split(separator: "\0").map(String.init)
     }
 
     /// The git dir a `.git` entry points at: itself for a main clone, the `gitdir:` target for a

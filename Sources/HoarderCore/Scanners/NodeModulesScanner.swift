@@ -7,9 +7,10 @@ enum NodeModulesScanner {
         guard !roots.isEmpty else { return [] }
         let output = await Shell.run("find", roots + [
             "(", "-name", ".git", "-o", "-name", ".build", ")", "-prune",
-            "-o", "-name", "node_modules", "-type", "d", "-print", "-prune",
+            "-o", "-name", "node_modules", "-type", "d", "-print0", "-prune",
         ])
-        let folders = output.stdout.split(separator: "\n").map(String.init)
+        // NUL-separated: split on newlines, a folder named "a\nb" would turn into a path to its parent.
+        let folders = output.stdout.split(separator: "\0").map(String.init)
         let sizes = await Shell.sizes(of: folders)
         let projects = Dictionary(grouping: folders) { projectRoot(of: $0, stoppingAt: roots) }
 

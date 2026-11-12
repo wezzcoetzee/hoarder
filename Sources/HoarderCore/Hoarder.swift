@@ -20,8 +20,9 @@ public enum Hoarder {
     /// Runs a finding's cleanup command in a login shell, so the user's tool PATH applies.
     /// The only call in Hoarder that changes the disk; the app calls it after the user confirms.
     public static func clean(_ finding: Finding) async -> (ok: Bool, output: String) {
+        guard finding.verdict != .keep else { return (false, "\(finding.title) is in use.") }
         guard let command = finding.cleanup else { return (false, "Nothing to run for \(finding.title).") }
-        let output = await Shell.run("zsh", ["-lc", command], includeErrors: true)
+        let output = await Shell.run("zsh", ["-lc", command], includeErrors: true, timeout: 1800)
         return (output.ok, output.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 

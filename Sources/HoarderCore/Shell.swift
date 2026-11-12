@@ -17,7 +17,9 @@ enum Shell {
     }
 
     /// `includeErrors` sends stderr into `stdout`, for commands whose failure message is shown to the user.
-    static func run(_ tool: String, _ arguments: [String], includeErrors: Bool = false) async -> Output {
+    /// A command still running after `timeout` is terminated, so a wedged daemon cannot stall a scan forever.
+    static func run(_ tool: String, _ arguments: [String], includeErrors: Bool = false,
+                    timeout: TimeInterval = 300) async -> Output {
         await withCheckedContinuation { continuation in
             DispatchQueue.global().async {
                 let process = Process()
@@ -34,6 +36,9 @@ enum Shell {
                 } catch {
                     continuation.resume(returning: Output(status: -1, stdout: ""))
                     return
+                }
+                DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+                    if process.isRunning { process.terminate() }
                 }
                 // Drain before waiting, or a full pipe buffer deadlocks the child.
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()

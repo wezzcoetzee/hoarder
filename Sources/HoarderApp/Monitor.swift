@@ -16,6 +16,8 @@ final class Monitor {
     private(set) var opensAtLogin = SMAppService.mainApp.status == .enabled
     private(set) var configError: String?
     private(set) var cleanError: String?
+    /// Cleaned while a scan was running, so that scan's result does not bring the rows back.
+    private var cleanedDuringScan: Set<Finding.ID> = []
 
     private static let alertStateKey = "alertState"
 
@@ -23,7 +25,8 @@ final class Monitor {
         alertState = UserDefaults.standard.data(forKey: Self.alertStateKey)
             .flatMap { try? JSONDecoder().decode(AlertState.self, from: $0) } ?? AlertState()
         Notifier.setUp()
-        Task { await run() }
+        Task { await watchDisk() }
+        Task { await scanOnSchedule() }
     }
 
     /// A still monitor for `--snapshot`: shows a saved report, never scans, alerts or cleans.
@@ -37,8 +40,12 @@ final class Monitor {
     func scan() async {
         guard !scanning else { return }
         scanning = true
+        cleanedDuringScan = []
         loadConfig()
-        report = await Hoarder.scan(config: config)
+        let fresh = await Hoarder.scan(config: config)
+        report = cleanedDuringScan.reduce(fresh) { report, id in
+            report.findings.first { $0.id == id }.map(report.removing) ?? report
+        }
         scanning = false
         refreshDisk()
     }
@@ -50,6 +57,7 @@ final class Monitor {
         cleaning.remove(finding.id)
         if result.ok {
             report = report?.removing(finding)
+            if scanning { cleanedDuringScan.insert(finding.id) }
         } else {
             cleanError = "\(finding.title) failed: \(result.output.suffix(240))"
         }
@@ -79,13 +87,19 @@ final class Monitor {
         }
     }
 
-    private func run() async {
-        await scan()
+    /// Free space every minute, independent of scans, so an alert never waits on a 45s scan.
+    private func watchDisk() async {
         while !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(60))
             refreshDisk()
+            try? await Task.sleep(for: .seconds(60))
+        }
+    }
+
+    private func scanOnSchedule() async {
+        while !Task.isCancelled {
             let due = report.map { Date.now.timeIntervalSince($0.scannedAt) >= Double(config.scanEveryMinutes) * 60 } ?? true
             if due { await scan() }
+            try? await Task.sleep(for: .seconds(60))
         }
     }
 

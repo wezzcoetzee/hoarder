@@ -14,9 +14,12 @@ public struct DiskSpace: Sendable, Equatable {
     }
 }
 
-/// Low-disk alerting: one alert per dip below the limit. Climbing back above re-arms it, and a snooze
+/// Low-disk alerting: one alert per dip below the limit. Climbing back above the limit plus a margin
+/// re-arms it and ends any snooze, so hovering at the limit does not alert on every wobble. A snooze
 /// silences it until the snooze ends, then alerts once more if the disk is still low.
 public struct AlertState: Codable, Sendable, Equatable {
+    public static let rearmMargin: Int64 = 2_000_000_000
+
     public private(set) var alerted = false
     public private(set) var snoozedUntil: Date?
 
@@ -25,7 +28,10 @@ public struct AlertState: Codable, Sendable, Equatable {
     /// Returns true when an alert should be sent now.
     public mutating func evaluate(free: Int64, limit: Int64, now: Date = .now) -> Bool {
         guard free < limit else {
-            alerted = false
+            if free >= limit + Self.rearmMargin {
+                alerted = false
+                snoozedUntil = nil
+            }
             return false
         }
         if let snoozedUntil, now < snoozedUntil { return false }
