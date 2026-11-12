@@ -119,8 +119,9 @@ enum WorktreeScanner {
         return nil
     }
 
-    /// A background scan must not start repo-configured fsmonitor helpers (or watchman daemons).
-    private static let safeConfig = ["-c", "core.fsmonitor=false"]
+    /// A background scan must not start fsmonitor helpers, watchman daemons, or gpg. Clean filters
+    /// (git-lfs and the like) still run during `status`, exactly as they do in the user's shell prompt.
+    private static let safeConfig = ["-c", "core.fsmonitor=false", "-c", "log.showSignature=false"]
 
     private static func git(_ gitDir: String, _ arguments: String...) async -> Shell.Output {
         await Shell.run("git", safeConfig + ["--git-dir=\(gitDir)"] + arguments)
