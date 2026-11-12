@@ -25,14 +25,21 @@ struct PopoverView: View {
     @State private var hovered: Finding.ID?
     @State private var confirming: Finding.ID?
     @State private var expanded: Set<HoarderCore.Category> = []
+    @State private var listHeight: CGFloat = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Theme.line.frame(height: 1)
             if let report = monitor.report {
-                ScrollView { sections(report).padding(.vertical, 6) }
-                    .frame(maxHeight: 470)
+                // A menu bar window sizes to its content, and a ScrollView has no height of its own,
+                // so the list is measured and the scroll area takes that height, up to a cap.
+                ScrollView {
+                    sections(report)
+                        .padding(.vertical, 6)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listHeight = $0 }
+                }
+                .frame(height: min(listHeight, 470))
             }
             Theme.line.frame(height: 1)
             footer
