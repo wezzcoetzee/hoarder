@@ -2,6 +2,21 @@
 
 A macOS menu bar app that watches free disk space and finds what agent coding leaves behind: git worktrees, node_modules, Docker build cache and images, and package manager caches. Each finding gets a verdict and the command that reclaims it.
 
+<img src="docs/screenshots/menubar.png" alt="Menu bar label showing 22G free in amber" height="24">
+
+| Popover | Click a row to see the command, then Run |
+|---|---|
+| <img src="docs/screenshots/overview.png" alt="Popover listing caches and worktrees with sizes and verdicts" width="400"> | <img src="docs/screenshots/confirm.png" alt="A merged worktree opened to show its git worktree remove command and Run" width="400"> |
+
+<details>
+<summary>Every section, with in-use rows shown and a clean running</summary>
+
+<img src="docs/screenshots/full-list.png" alt="Full popover: caches, worktrees, node_modules and Docker, with kept rows listed" width="400">
+
+</details>
+
+Screenshots are rendered from a made-up report; see [Screenshots](#screenshots).
+
 ```mermaid
 flowchart LR
   subgraph HoarderCore
@@ -43,6 +58,14 @@ That also writes the menu bar label to `/tmp/popover-menubar.png`. Pass `none` i
   "failures": { "worktree:/path": "fatal: …" }, "lastCleaned": "Cleaned …",
   "lastFailed": "Not cleaned: …", "notificationsOff": false, "full": true }
 ```
+
+## Screenshots
+
+```sh
+./scripts/screenshots.sh   # regenerate docs/screenshots
+```
+
+The README images come from `scripts/screenshots/report.json`, a made-up report, so no real paths ship. Each `scripts/screenshots/states/<name>.json` is a state file as above and renders to `docs/screenshots/<name>.png`; add one to add a shot. Rerun the script after UI changes.
 
 ## Verdicts
 

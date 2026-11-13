@@ -1,0 +1,4 @@
+{ "freeGB": 22, "alertBelowGB": 40, "full": true,
+  "showingKept": ["worktree", "nodeModules"], "expanded": ["cache"],
+  "cleaning": "cache:/Users/dev/Library/Developer/Xcode/DerivedData",
+  "lastCleaned": "Cleaned worktree storefront · feat/old-nav, 1.2 GB" }
