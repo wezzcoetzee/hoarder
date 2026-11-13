@@ -133,13 +133,18 @@ enum WorktreeScanner {
 
     private static func finding(for worktree: Worktree, bytes: Int64, staleAfterDays: Int) -> Finding {
         let (verdict, detail) = classify(worktree, staleAfterDays: staleAfterDays)
-        // No --force: git then refuses a worktree that picked up changes since the scan.
-        let cleanup = worktree.present
-            ? "git --git-dir=\(shellQuote(worktree.gitDir)) worktree remove \(shellQuote(worktree.entry.path))"
-            : nil
         return Finding(category: .worktree, title: "\(worktree.repo) · \(worktree.entry.branch ?? "detached")",
                        detail: detail, paths: [worktree.entry.path], bytes: bytes, lastActivity: worktree.tip,
-                       verdict: verdict, cleanup: cleanup)
+                       verdict: verdict, cleanup: removeCommand(worktree))
+    }
+
+    /// Forces only past what the scan saw: a clean worktree gets no --force, so git refuses one that
+    /// picked up changes since. A dirty one needs --force and a locked one -f -f; both are kept rows,
+    /// which the app runs only behind a warning.
+    static func removeCommand(_ worktree: Worktree) -> String? {
+        guard worktree.present else { return nil }
+        let force = worktree.entry.locked ? " -f -f" : worktree.dirty ? " --force" : ""
+        return "git --git-dir=\(shellQuote(worktree.gitDir)) worktree remove\(force) \(shellQuote(worktree.entry.path))"
     }
 
     private static func orphanFinding(_ orphans: [Worktree]) -> Finding {

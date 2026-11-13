@@ -33,6 +33,21 @@ func classifiesWorktrees(present: Bool, locked: Bool, dirty: Bool, merged: Bool,
     #expect(WorktreeScanner.classify(worktree, staleAfterDays: 14, now: now).0 == expected)
 }
 
+@Test(arguments: [
+    // present, locked, dirty, expected flags (nil: no command)
+    (true, false, false, Optional("worktree remove '/wt'")),
+    (true, false, true, "worktree remove --force '/wt'"),
+    (true, true, false, "worktree remove -f -f '/wt'"),
+    (true, true, true, "worktree remove -f -f '/wt'"),
+    (false, true, false, nil),
+])
+func forcesWorktreeRemovalOnlyPastWhatTheScanSaw(present: Bool, locked: Bool, dirty: Bool, expected: String?) {
+    let worktree = WorktreeScanner.Worktree(
+        repo: "r", gitDir: "/r/.git", entry: .init(path: "/wt", branch: "b", locked: locked), present: present,
+        dirty: dirty, merged: false, pushed: false, tip: nil)
+    #expect(WorktreeScanner.removeCommand(worktree) == expected.map { "git --git-dir='/r/.git' " + $0 })
+}
+
 @Test func parsesDockerSizes() {
     #expect(DockerScanner.parseSize("14.18GB (44%)") == 14_180_000_000)
     #expect(DockerScanner.parseSize("20.48kB") == 20_480)

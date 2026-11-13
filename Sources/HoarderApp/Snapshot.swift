@@ -14,6 +14,8 @@ enum Snapshot {
         var snoozed: Bool?
         var hovered: Finding.ID?
         var confirming: Finding.ID?
+        /// "Clean all safe" pressed, showing Run.
+        var confirmingSafe: Bool?
         var cleaning: Finding.ID?
         var expanded: [HoarderCore.Category]?
         /// Sections whose "N in use" row is open.
@@ -52,6 +54,7 @@ enum Snapshot {
 
         _ = NSApplication.shared
         let popover = PopoverView(monitor: monitor, hovered: state.hovered, confirming: state.confirming,
+                                  confirmingSafe: state.confirmingSafe ?? false,
                                   expanded: Set(state.expanded ?? []),
                                   showingKept: Set(state.showingKept ?? []), listCap: state.full == true ? .infinity : 470)
         try write(popover, to: output)

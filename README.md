@@ -8,6 +8,10 @@ A macOS menu bar app that watches free disk space and finds what agent coding le
 |---|---|
 | <img src="docs/screenshots/overview.png" alt="Popover listing caches and worktrees with sizes and verdicts" width="400"> | <img src="docs/screenshots/confirm.png" alt="A merged worktree opened to show its git worktree remove command and Run" width="400"> |
 
+| Clean all safe rows at once | In-use rows clean too, forcing behind a warning |
+|---|---|
+| <img src="docs/screenshots/clean-safe.png" alt="Header asking to run all green rows one at a time, with Run and Cancel" width="400"> | <img src="docs/screenshots/force.png" alt="A worktree with uncommitted changes opened to show a red warning and a git worktree remove --force command" width="400"> |
+
 <details>
 <summary>Every section, with in-use rows shown and a clean running</summary>
 
@@ -53,7 +57,7 @@ That also writes the menu bar label to `/tmp/popover-menubar.png`. Pass `none` i
 
 ```json
 { "freeGB": 22, "alertBelowGB": 40, "scanning": false, "snoozed": false,
-  "hovered": "worktree:/path", "confirming": "docker:Unused images", "cleaning": "cache:/path",
+  "hovered": "worktree:/path", "confirming": "docker:Unused images", "confirmingSafe": false, "cleaning": "cache:/path",
   "expanded": ["worktree"], "showingKept": ["worktree"],
   "failures": { "worktree:/path": "fatal: …" }, "lastCleaned": "Cleaned …",
   "lastFailed": "Not cleaned: …", "notificationsOff": false, "full": true }
@@ -73,9 +77,11 @@ The README images come from `scripts/screenshots/report.json`, a made-up report,
 |---|---|---|
 | reclaimable | nothing is lost by deleting it now | orphaned or clean+merged worktrees, node_modules idle 30d+, Docker build cache, Go build cache |
 | review | probably dead weight, look first | clean unmerged worktrees 14d+, unused Docker images and volumes, download caches, agent transcripts |
-| keep | in use, shown for size only | dirty, locked or recent worktrees, active node_modules, the Docker VM disk |
+| keep | in use; cleanable, never suggested | dirty, locked or recent worktrees, active node_modules, the Docker VM disk |
 
 Worktree rules come from the `worktree-cleanup` skill: orphan, then hold (dirty, locked, under 14 days), then merged, then stale.
+
+Clean all safe runs every reclaimable row's command, one at a time. Kept rows can be cleaned one by one: a recent worktree or active node_modules runs its plain command, while a dirty worktree uses `--force` and a locked one `-f -f`, with a red warning that the uncommitted changes go. Rows with no command (the Docker VM disk, app data) only show where they are.
 
 ## Alerts
 

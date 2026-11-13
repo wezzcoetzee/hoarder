@@ -61,12 +61,12 @@
       "cleanup": "rm -rf '/Users/dev/Development/api-gateway/node_modules'" },
     { "category": "worktree", "verdict": "keep", "title": "api-gateway · detached", "detail": "uncommitted changes",
       "paths": ["/Users/dev/.worktrees/api-gateway/agent-7f3e"], "bytes": 640000000,
-      "cleanup": "git --git-dir='/Users/dev/Development/api-gateway/.git' worktree remove '/Users/dev/.worktrees/api-gateway/agent-7f3e'" },
+      "cleanup": "git --git-dir='/Users/dev/Development/api-gateway/.git' worktree remove --force '/Users/dev/.worktrees/api-gateway/agent-7f3e'" },
     { "category": "nodeModules", "verdict": "keep", "title": "design-system", "detail": "1 folder, used 9d ago",
       "paths": ["/Users/dev/Development/design-system/node_modules"], "bytes": 530000000,
       "cleanup": "rm -rf '/Users/dev/Development/design-system/node_modules'" },
     { "category": "worktree", "verdict": "keep", "title": "mobile-app · release/2.4", "detail": "locked",
       "paths": ["/Users/dev/.worktrees/mobile-app/release-2.4"], "bytes": 410000000,
-      "cleanup": "git --git-dir='/Users/dev/Development/mobile-app/.git' worktree remove '/Users/dev/.worktrees/mobile-app/release-2.4'" }
+      "cleanup": "git --git-dir='/Users/dev/Development/mobile-app/.git' worktree remove -f -f '/Users/dev/.worktrees/mobile-app/release-2.4'" }
   ]
 }

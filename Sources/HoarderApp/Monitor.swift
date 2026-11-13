@@ -71,9 +71,9 @@ final class Monitor {
             report.findings.first { $0.id == id }.map(report.removing) ?? report
         }
         report = current
-        // A failure stays while its row can still be cleaned; a row that is now kept drops it, and the
-        // header says why instead of pointing at a row that no longer shows the failure.
-        let cleanable = Set(current.findings.filter { $0.verdict != .keep }.map(\.id))
+        // A failure stays while its row can still be cleaned, kept rows included; a row with no command
+        // left drops it, and the header says why instead of pointing at a row that no longer shows it.
+        let cleanable = Set(current.findings.filter { $0.cleanup != nil }.map(\.id))
         failures = failures.filter { cleanable.contains($0.key) }
         if let id = lastFailedID, lastFailed != nil, !cleanable.contains(id) {
             let now = current.findings.first { $0.id == id }
@@ -83,8 +83,35 @@ final class Monitor {
         refreshDisk()
     }
 
-    func clean(_ finding: Finding) async {
-        guard cleaning[finding.id] == nil else { return }
+    /// What "Clean all safe" runs.
+    var safeToClean: [Finding] {
+        report?.findings.filter { $0.verdict == .reclaimable && $0.cleanup != nil } ?? []
+    }
+
+    /// Cleans every safe row in turn rather than at once, so a worktree and the node_modules inside it
+    /// never race. Rows an earlier clean took with it (nested node_modules) are skipped.
+    func cleanSafe() async {
+        var cleaned = 0
+        var freed: Int64 = 0
+        for id in safeToClean.map(\.id) {
+            // The current row: cleaning one inside it may have shrunk it.
+            guard let finding = report?.findings.first(where: { $0.id == id }) else { continue }
+            if await clean(finding) {
+                cleaned += 1
+                freed += finding.bytes
+            }
+        }
+        // One row keeps that row's own line.
+        if cleaned > 1 {
+            let message = "Cleaned \(cleaned) safe rows, \(formatBytes(freed))"
+            lastCleaned = message
+            AccessibilityNotification.Announcement(message).post()
+        }
+    }
+
+    @discardableResult
+    func clean(_ finding: Finding) async -> Bool {
+        guard cleaning[finding.id] == nil else { return false }
         cleaning[finding.id] = finding.fullName
         failures[finding.id] = nil
         let result = await Hoarder.clean(finding)
@@ -112,6 +139,7 @@ final class Monitor {
             if finding.category == .worktree { Task { await scan() } }
         }
         refreshDisk()
+        return result.ok
     }
 
     /// The outcome lines have been seen once the popover closes.

@@ -53,6 +53,8 @@ struct PopoverView: View {
     let monitor: Monitor
     @State private var hovered: Finding.ID?
     @State private var confirming: Finding.ID?
+    /// "Clean all safe" was pressed and waits for Run.
+    @State private var confirmingSafe = false
     /// The open row's verdict and command when it was opened, to notice a scan changing them.
     @State private var confirmedAs: String?
     /// A panel just opened and should be scrolled into view once the list has grown to fit it.
@@ -68,13 +70,14 @@ struct PopoverView: View {
     private static let visibleRows = 5
 
     /// The optional arguments set the starting state, for `--snapshot`.
-    init(monitor: Monitor, hovered: Finding.ID? = nil, confirming: Finding.ID? = nil,
+    init(monitor: Monitor, hovered: Finding.ID? = nil, confirming: Finding.ID? = nil, confirmingSafe: Bool = false,
          expanded: Set<HoarderCore.Category> = [], showingKept: Set<HoarderCore.Category> = [],
          listCap: CGFloat = 470) {
         self.monitor = monitor
         self.listCap = listCap
         _hovered = State(initialValue: hovered)
         _confirming = State(initialValue: confirming)
+        _confirmingSafe = State(initialValue: confirmingSafe)
         _revealPending = State(initialValue: confirming != nil)
         _expanded = State(initialValue: expanded)
         _showingKept = State(initialValue: showingKept)
@@ -131,6 +134,7 @@ struct PopoverView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in
             hovered = nil
             confirming = nil
+            confirmingSafe = false
             monitor.dismissCleaned()
         }
     }
@@ -154,9 +158,13 @@ struct PopoverView: View {
                                 Dot(verdict: verdict)
                                 Text("\(Text(formatBytes(bytes)).font(.system(size: 13))) \(Text(verdict.spoken).foregroundStyle(Theme.dim))")
                                     .monospacedDigit()
+                                    .fixedSize()
                             }
                         }
+                        Spacer(minLength: 0)
+                        cleanSafeButton
                     }
+                    cleanSafeConfirm
                 }
             } else {
                 Text("The first scan takes about a minute").foregroundStyle(Theme.dim)
@@ -192,6 +200,49 @@ struct PopoverView: View {
         }
         .font(.system(size: 12))
         .padding(12)
+    }
+
+    /// "Clean all safe" beside the totals, then a line under them saying what Run does. Hidden while
+    /// anything is cleaning.
+    @ViewBuilder
+    private var cleanSafeButton: some View {
+        if !confirmingSafe && !monitor.safeToClean.isEmpty && monitor.cleaning.isEmpty {
+            Button {
+                confirming = nil
+                confirmingSafe = true
+            } label: {
+                // The totals keep their line; the label shortens when they are wide.
+                ViewThatFits { Text("Clean all safe"); Text("Clean safe") }
+            }
+            .buttonStyle(TextButtonStyle())
+            .foregroundStyle(Theme.green)
+            .accessibilityHint("Asks before running \(monitor.safeToClean.count) cleanups")
+            .padding(.vertical, -5)
+            .padding(.trailing, -6)
+        }
+    }
+
+    @ViewBuilder
+    private var cleanSafeConfirm: some View {
+        let count = monitor.safeToClean.count
+        if confirmingSafe && count > 0 && monitor.cleaning.isEmpty {
+            HStack(spacing: 0) {
+                Text("Runs all \(count) green rows, one at a time").foregroundStyle(Theme.dim)
+                Spacer(minLength: 8)
+                Button {
+                    confirmingSafe = false
+                    Task { await monitor.cleanSafe() }
+                } label: { Text("Run \(Image(systemName: "return"))") }
+                    .foregroundStyle(Theme.green)
+                    .keyboardShortcut(.defaultAction)
+                    .accessibilityLabel("Run all \(count) safe cleanups")
+                Button("Cancel") { confirmingSafe = false }
+                    .keyboardShortcut(.cancelAction)
+            }
+            .buttonStyle(TextButtonStyle())
+            .padding(.vertical, -5)
+            .padding(.trailing, -6)
+        }
     }
 
     private var heading: String {
@@ -285,6 +336,7 @@ struct PopoverView: View {
                            confirming = nil
                        } else {
                            confirming = finding.id
+                           confirmingSafe = false
                            confirmedAs = Self.signature(finding)
                            revealPending = true
                        }
@@ -412,8 +464,9 @@ struct Dot: View {
     }
 }
 
-/// One finding. Clicking it opens a panel with the full reason, and for a cleanable row the exact
-/// command and Run; hover shows "Clean" on rows that can be cleaned. Kept rows never offer cleaning.
+/// One finding. Clicking it opens a panel with the full reason, and for a row with a command the exact
+/// command and Run; hover shows "Clean" on those rows. Kept rows can be cleaned too: grey when nothing
+/// is lost, red with a warning when the command forces past uncommitted changes or a lock.
 struct FindingRow: View {
     /// Where row text starts: horizontal padding, dot, spacing. Lines below the title align to it.
     static let textInset: CGFloat = 12 + 7 + 8
@@ -431,8 +484,21 @@ struct FindingRow: View {
     @AccessibilityFocusState private var panelFocused: Bool
     @AccessibilityFocusState private var rowFocused: Bool
 
-    private var cleanable: Bool { finding.verdict != .keep && finding.cleanup != nil }
+    private var cleanable: Bool { finding.cleanup != nil }
     private var kept: Bool { finding.verdict == .keep }
+
+    /// What forcing loses, when the command forces git past what made the row kept.
+    private var forceWarning: String? {
+        guard let command = finding.cleanup else { return nil }
+        if command.contains("worktree remove -f -f") { return "Ignores the lock and deletes any uncommitted changes; not undoable" }
+        if command.contains("worktree remove --force") { return "Deletes the uncommitted changes; not undoable" }
+        return nil
+    }
+
+    /// Clean and Run: the verdict's colour, grey on a kept row, red when the command forces.
+    private var actionColor: Color {
+        forceWarning != nil ? Theme.red : kept ? Theme.keptTitle : Theme.color(finding.verdict)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -518,7 +584,7 @@ struct FindingRow: View {
                 .foregroundStyle(cleaning || kept || finding.bytes == 0 ? Theme.dim : .white)
                 .opacity(showAction ? 0 : 1)
             if cleanable {
-                Text("Clean").foregroundStyle(Theme.color(finding.verdict)).opacity(showAction ? 1 : 0)
+                Text("Clean").foregroundStyle(actionColor).opacity(showAction ? 1 : 0)
             }
         }
         .accessibilityHidden(true)
@@ -531,7 +597,12 @@ struct FindingRow: View {
                     .font(.system(size: 12))
                     .foregroundStyle(Theme.amber)
             }
-            if cleanable, finding.category == .worktree, finding.cleanup?.contains("worktree remove") == true {
+            if cleanable, let forceWarning {
+                Text(forceWarning)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if cleanable, finding.category == .worktree, finding.cleanup?.contains("worktree remove") == true {
                 Text("Removes the folder; the branch and its commits stay")
                     .font(.system(size: 12))
                     .foregroundStyle(Theme.dim)
@@ -558,7 +629,7 @@ struct FindingRow: View {
             HStack(spacing: 0) {
                 if cleanable && !cleaning {
                     Button(action: onRun) { Text("Run \(Image(systemName: "return"))") }
-                        .foregroundStyle(Theme.color(finding.verdict))
+                        .foregroundStyle(actionColor)
                         .keyboardShortcut(.defaultAction)
                         .accessibilityLabel("Run cleanup for \(finding.title)")
                         .accessibilityInputLabels(["Run", "Run cleanup"])
