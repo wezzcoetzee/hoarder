@@ -2,3 +2,6 @@
 dist/
 .swiftpm/
 .impeccable/
+.DS_Store
+.env
+*.xcodeproj/xcuserdata/
