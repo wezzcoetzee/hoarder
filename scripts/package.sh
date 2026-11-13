@@ -13,12 +13,11 @@ dmg="dist/Hoarder-$version.dmg"
 rm -f "$zip" "$dmg"
 ditto -c -k --keepParent "$app" "$zip"
 
-# The Applications shortcut points at ~/Applications so installing needs no admin rights.
+# The shortcut must be an absolute path: ~ would expand to the build machine's home.
 stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
 cp -R "$app" "$stage/"
-mkdir -p ~/Applications
-ln -s ~/Applications "$stage/Applications"
+ln -s /Applications "$stage/Applications"
 hdiutil create -volname Hoarder -srcfolder "$stage" -fs HFS+ -format UDZO -ov "$dmg" >/dev/null
 
 echo "$zip"
