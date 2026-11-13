@@ -4,6 +4,11 @@ public struct DiskSpace: Sendable, Equatable {
     public let free: Int64
     public let total: Int64
 
+    public init(free: Int64, total: Int64) {
+        self.free = free
+        self.total = total
+    }
+
     /// Free space as `df` reports it. Finder's figure also counts purgeable space, which reads calmer
     /// than it is when a build is filling the disk.
     public static func current(volume: String = "/") -> DiskSpace? {

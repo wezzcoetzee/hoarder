@@ -34,6 +34,14 @@ swift run hoarder --json > /tmp/report.json
 swift run HoarderApp --snapshot /tmp/report.json /tmp/popover.png
 ```
 
+That also writes the menu bar label to `/tmp/popover-menubar.png`. Pass `none` instead of a report to show the first scan. An optional third argument, a JSON state file, sets the rest; every key is optional (see `Snapshot.State`):
+
+```json
+{ "freeGB": 22, "alertBelowGB": 40, "scanning": false, "snoozed": false,
+  "hovered": "worktree:/path", "confirming": "docker:Unused images", "cleaning": "cache:/path",
+  "expanded": ["worktree"], "cleanError": "…", "full": true }
+```
+
 ## Verdicts
 
 | Verdict | Meaning | Examples |

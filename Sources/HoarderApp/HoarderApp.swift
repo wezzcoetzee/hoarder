@@ -4,8 +4,6 @@ import SwiftUI
 
 @main
 enum Entry {
-    /// `HoarderApp --snapshot <report.json> <out.png>` renders the popover from a saved
-    /// `hoarder --json` report, to check the UI without opening the menu bar.
     static func main() {
         let arguments = CommandLine.arguments
         guard let flag = arguments.firstIndex(of: "--snapshot"), arguments.count > flag + 2 else {
@@ -14,28 +12,13 @@ enum Entry {
         }
         MainActor.assumeIsolated {
             do {
-                try snapshot(report: arguments[flag + 1], to: arguments[flag + 2])
+                try Snapshot.render(report: arguments[flag + 1], to: arguments[flag + 2],
+                                    state: arguments.count > flag + 3 ? arguments[flag + 3] : nil)
             } catch {
                 FileHandle.standardError.write(Data("snapshot failed: \(error)\n".utf8))
                 exit(1)
             }
         }
-    }
-
-    @MainActor
-    private static func snapshot(report path: String, to output: String) throws {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let report = try decoder.decode(Report.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
-        _ = NSApplication.shared
-        let view = NSHostingView(rootView: PopoverView(monitor: Monitor(preview: report)))
-        let window = NSWindow(contentRect: .zero, styleMask: .borderless, backing: .buffered, defer: false)
-        window.contentView = view
-        window.setContentSize(view.fittingSize)
-        view.layoutSubtreeIfNeeded()
-        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
-        view.cacheDisplay(in: view.bounds, to: bitmap)
-        try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output))
     }
 }
 

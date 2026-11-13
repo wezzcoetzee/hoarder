@@ -26,6 +26,17 @@ struct PopoverView: View {
     @State private var confirming: Finding.ID?
     @State private var expanded: Set<HoarderCore.Category> = []
     @State private var listHeight: CGFloat = 0
+    private let listCap: CGFloat
+
+    /// The optional arguments set the starting state, for `--snapshot`.
+    init(monitor: Monitor, hovered: Finding.ID? = nil, confirming: Finding.ID? = nil,
+         expanded: Set<HoarderCore.Category> = [], listCap: CGFloat = 470) {
+        self.monitor = monitor
+        self.listCap = listCap
+        _hovered = State(initialValue: hovered)
+        _confirming = State(initialValue: confirming)
+        _expanded = State(initialValue: expanded)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -39,7 +50,7 @@ struct PopoverView: View {
                         .padding(.vertical, 6)
                         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listHeight = $0 }
                 }
-                .frame(height: min(listHeight, 470))
+                .frame(height: min(listHeight, listCap))
             }
             Theme.line.frame(height: 1)
             footer

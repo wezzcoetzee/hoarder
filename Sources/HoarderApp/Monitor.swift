@@ -29,10 +29,16 @@ final class Monitor {
         Task { await scanOnSchedule() }
     }
 
-    /// A still monitor for `--snapshot`: shows a saved report, never scans, alerts or cleans.
-    init(preview report: Report) {
-        alertState = AlertState()
+    /// A still monitor for `--snapshot`: shows the given state, never scans, alerts or cleans.
+    init(preview report: Report?, disk: DiskSpace, config: Config, alertState: AlertState, scanning: Bool,
+         cleaning: Set<Finding.ID>, cleanError: String?) {
         self.report = report
+        self.disk = disk
+        self.config = config
+        self.alertState = alertState
+        self.scanning = scanning
+        self.cleaning = cleaning
+        self.cleanError = cleanError
     }
 
     var isLow: Bool { disk.map { $0.free < config.alertLimitBytes } ?? false }
