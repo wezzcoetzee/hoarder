@@ -35,6 +35,16 @@ flowchart LR
   App -->|every 60s| F[DiskSpace + AlertState] --> Notify[Notification]
 ```
 
+## Install
+
+Download the DMG from [Releases](https://github.com/wezzcoetzee/hoarder/releases) and drag Hoarder to Applications.
+
+The app is not notarized, so the first launch shows "Apple could not verify Hoarder". Click Done, then open System Settings, Privacy & Security, and click Open Anyway next to Hoarder. Or clear the quarantine flag:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Hoarder.app
+```
+
 ## Run it
 
 ```sh
