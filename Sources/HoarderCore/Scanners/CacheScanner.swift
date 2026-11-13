@@ -26,7 +26,7 @@ enum CacheScanner {
         Known(title: "npm cache", path: "~/.npm/_cacache", verdict: .review, detail: regenerable,
               cleanup: "npm cache clean --force"),
         Known(title: "bun cache", path: "~/.bun/install/cache", verdict: .review, detail: regenerable,
-              cleanup: "bun pm cache rm"),
+              cleanup: "rm -rf ~/.bun/install/cache"),
         Known(title: "pnpm store", path: path(mac: "~/Library/pnpm/store", linux: "~/.local/share/pnpm/store"),
               verdict: .review, detail: "prune keeps packages in use", cleanup: "pnpm store prune"),
         Known(title: "Yarn cache", path: path(mac: "~/Library/Caches/Yarn", linux: "~/.cache/yarn"),

@@ -107,6 +107,8 @@ Worktree rules come from the `worktree-cleanup` skill: orphan, then hold (dirty,
 
 Clean all safe runs every reclaimable row's command, one at a time. Kept rows can be cleaned one by one: a recent worktree or active node_modules runs its plain command, while a dirty worktree uses `--force` and a locked one `-f -f`, with a red warning that the uncommitted changes go. Rows with no command (the Docker VM disk, app data) only show where they are.
 
+Bun cleanup removes the reported `~/.bun/install/cache` directory directly, so it works outside a project too. pnpm cleanup requires `pnpm` on the target machine's login-shell `PATH`; it runs `pnpm store prune` to retain packages in use.
+
 ## Alerts
 
 Free space is read every minute (the `df` figure, not Finder's, which counts purgeable space). Below `alertBelowGB` the menu bar turns amber and one notification is sent per dip. Recovering re-arms it; Snooze silences it for a day, and Unsnooze (⌘S again) ends that early.
