@@ -1,0 +1,13 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  release:
+    uses: wezzcoetzee/.github/.github/workflows/macos-release.yml@main
+    permissions:
+      contents: write
+    with:
+      build-command: scripts/package.sh "$VERSION"
