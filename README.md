@@ -125,11 +125,43 @@ sequenceDiagram
   App->>D: Run: the row's command, in the device's login shell
 ```
 
-- **SSH has to work without prompting.** Hoarder runs `ssh -o BatchMode=yes`, so it never answers a host key or password question. Run `ssh <host>` once by hand to accept the host key; until then the device shows as unreachable with that hint. Tailscale SSH or a key in `~/.ssh` both work, and Host entries in `~/.ssh/config` apply.
+- **SSH has to work without prompting.** Hoarder runs `ssh -o BatchMode=yes`, so it never answers a host key or password question. Run `ssh <host>` once by hand to accept the host key; until then the device shows as unreachable with that hint. See [Tailscale setup](#tailscale-setup) below; Host entries in `~/.ssh/config` apply too.
 - **What it installs.** The first scan puts the CLI in `~/.local/share/hoarder/<build>/hoarder` on the device and removes older builds from that folder. Nothing else is written until you press Run. Mac devices get the copy bundled in the app; Linux devices download `hoarder-linux-<arch>` from this version's release (x86_64 and aarch64), so they need `curl`.
 - **Paths are the device's own.** Its scan reads its own `~/.config/hoarder/config.json`, unless the device entry sets `projectRoots`. Caches are looked up where that OS keeps them (`~/.cache` on Linux). On Linux, Docker prunes free space on the disk directly, so those rows lose the "inside Docker's disk" note.
 - **Alerts** work per device, with its own `alertBelowGB` if set, and are titled with the host. Another device under its limit tints the menu bar amber and adds "· 1 low".
 - **Testing unreleased changes** on a Linux device: download the `hoarder-linux-<arch>` artifact from the PR's CI run into `dist/linux/`, then `./scripts/bundle.sh`. The bundled copy is used before any download.
+
+### Tailscale setup
+
+Hoarder talks to devices with plain `ssh`, so Tailscale's job is to make each device reachable by name with no ports open to the internet. Hoarder opens no ports or servers of its own.
+
+```mermaid
+flowchart LR
+  Mac["Hoarder on this Mac"] -->|"ssh homeserver"| TS["tailnet (WireGuard)"]
+  TS --> Linux["homeserver: Tailscale SSH or sshd"]
+  TS --> Mini["mac-mini: Remote Login (sshd)"]
+```
+
+1. **Find the names.** `tailscale status` lists every device. With MagicDNS on (the default) the second column's name, like `homeserver`, is what goes in `host`. The `100.x` address or the full `homeserver.<tailnet>.ts.net` name work too. A `Host` entry in `~/.ssh/config` with the same name wins over MagicDNS, so check `ssh -G <host> | grep hostname` if a device resolves somewhere unexpected.
+2. **Turn SSH on for each device.**
+   - **Linux:** `sudo tailscale set --ssh` enables Tailscale SSH, which authenticates with your tailnet identity and needs no keys. A regular `sshd` with your key in `~/.ssh/authorized_keys` works as well.
+   - **macOS:** the App Store and standalone Tailscale apps cannot be a Tailscale SSH server, so turn on System Settings, General, Sharing, Remote Login, and add this Mac's key to the device's `~/.ssh/authorized_keys` (`ssh-copy-id mac-mini`).
+3. **Use `accept` in the tailnet policy** (Tailscale SSH only). The default policy's SSH rule uses `check`, which asks for a browser login every 12 hours, and since Hoarder runs with `BatchMode`, scans fail until you SSH in by hand again. Change it in the admin console's Access controls to:
+
+   ```json
+   "ssh": [{ "action": "accept", "src": ["autogroup:member"], "dst": ["autogroup:self"], "users": ["autogroup:nonroot"] }]
+   ```
+4. **Connect once by hand.** `ssh homeserver` from this Mac accepts the host key into `~/.ssh/known_hosts`. Then `ssh -o BatchMode=yes homeserver true` should return with no prompt; if it does, Hoarder can reach it.
+5. **Add it** under `devices` in the config. It appears in the strip within a minute.
+
+If a device shows as unreachable, its header says why:
+
+| Message | Fix |
+|---|---|
+| Host key not trusted | `ssh <host>` once and accept the key |
+| SSH refused the login | Enable Tailscale SSH (step 2), fix the policy (step 3), or install your key |
+| No device named … | Check the name in `tailscale status`, and that MagicDNS is on |
+| … is unreachable | The device is offline or Tailscale is not running on one end |
 
 ## Config
 
