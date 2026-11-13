@@ -40,7 +40,8 @@ That also writes the menu bar label to `/tmp/popover-menubar.png`. Pass `none` i
 { "freeGB": 22, "alertBelowGB": 40, "scanning": false, "snoozed": false,
   "hovered": "worktree:/path", "confirming": "docker:Unused images", "cleaning": "cache:/path",
   "expanded": ["worktree"], "showingKept": ["worktree"],
-  "failures": { "worktree:/path": "fatal: …" }, "lastCleaned": "Cleaned …", "full": true }
+  "failures": { "worktree:/path": "fatal: …" }, "lastCleaned": "Cleaned …",
+  "lastFailed": "Not cleaned: …", "notificationsOff": false, "full": true }
 ```
 
 ## Verdicts

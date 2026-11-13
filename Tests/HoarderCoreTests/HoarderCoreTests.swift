@@ -40,14 +40,23 @@ func classifiesWorktrees(present: Bool, locked: Bool, dirty: Bool, merged: Bool,
     #expect(DockerScanner.parseSize("garbage") == nil)
 }
 
+private func finding(_ path: String, _ bytes: Int64) -> Finding {
+    Finding(category: .worktree, title: path, detail: "", paths: [path], bytes: bytes, lastActivity: nil,
+            verdict: .reclaimable, cleanup: nil)
+}
+
 @Test func totalsSkipPathsNestedInsideCountedOnes() {
-    func finding(_ path: String, _ bytes: Int64) -> Finding {
-        Finding(category: .worktree, title: path, detail: "", paths: [path], bytes: bytes, lastActivity: nil,
-                verdict: .reclaimable, cleanup: nil)
-    }
     let report = Report(findings: [finding("/wt/a/node_modules", 40), finding("/wt/a", 100), finding("/wt/ab", 5)],
                         notes: [], scannedAt: .now, duration: 0)
     #expect(report.total(.reclaimable) == 105)
+}
+
+@Test func cleaningDropsNestedRowsAndShrinksTheContainingOne() {
+    let worktree = finding("/wt/a", 100), modules = finding("/wt/a/node_modules", 40), sibling = finding("/wt/ab", 5)
+    let report = Report(findings: [worktree, modules, sibling], notes: [], scannedAt: .now, duration: 0)
+    #expect(report.removing(worktree).findings.map(\.paths) == [["/wt/ab"]])
+    let afterModules = report.removing(modules)
+    #expect(afterModules.findings.map(\.bytes) == [60, 5])
 }
 
 @Test func alertsOncePerDipAndAgainAfterSnooze() {

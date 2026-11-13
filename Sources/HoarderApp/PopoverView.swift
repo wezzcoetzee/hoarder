@@ -57,6 +57,8 @@ struct PopoverView: View {
     @State private var confirmedAs: String?
     /// A panel just opened and should be scrolled into view once the list has grown to fit it.
     @State private var revealPending = false
+    /// A section header to scroll back to after "Show fewer" collapses a long section.
+    @State private var scrollTarget: String?
     @State private var expanded: Set<HoarderCore.Category> = []
     @State private var showingKept: Set<HoarderCore.Category> = []
     @State private var listHeight: CGFloat = 0
@@ -95,6 +97,11 @@ struct PopoverView: View {
                     .onChange(of: confirming, initial: true) { _, id in
                         // On the next turn, once the panel has its height, so Run lands in view.
                         if let id { DispatchQueue.main.async { proxy.scrollTo(id) } }
+                    }
+                    .onChange(of: scrollTarget) { _, target in
+                        guard let target else { return }
+                        proxy.scrollTo(target, anchor: .top)
+                        scrollTarget = nil
                     }
                     // And once more when the list has grown by the panel, which is when its height is
                     // final. Only once, so expanding a section later never jumps back to the panel.
@@ -154,13 +161,16 @@ struct PopoverView: View {
             } else {
                 Text("The first scan takes about a minute").foregroundStyle(Theme.dim)
             }
-            ForEach(monitor.report?.findings.filter { monitor.cleaning.contains($0.id) } ?? []) {
-                Text("Cleaning \($0.fullName)").foregroundStyle(Theme.dim)
+            ForEach(monitor.cleaning.values.sorted(), id: \.self) {
+                Text("Cleaning \($0)").foregroundStyle(Theme.dim)
             }
             if let lastCleaned = monitor.lastCleaned {
                 Text(lastCleaned).foregroundStyle(Theme.green)
             }
-            if monitor.isLow, let snoozedUntil = monitor.alertState.snoozedUntil, monitor.alertState.isSnoozed() {
+            if let lastFailed = monitor.lastFailed {
+                Text(lastFailed).foregroundStyle(Theme.red)
+            }
+            if let snoozedUntil = monitor.alertState.snoozedUntil, monitor.alertState.isSnoozed() {
                 let day = Calendar.current.isDateInToday(snoozedUntil) ? "today" : "tomorrow"
                 Text("Alert snoozed until \(snoozedUntil.formatted(date: .omitted, time: .shortened)) \(day)")
                     .foregroundStyle(Theme.dim)
@@ -212,6 +222,7 @@ struct PopoverView: View {
         let kept = rows.filter { $0.verdict == .keep }
         let isExpanded = expanded.contains(category)
         let visible = isExpanded ? actionable : Array(actionable.prefix(Self.visibleRows))
+        let hiddenBytes = actionable.dropFirst(Self.visibleRows).reduce(0) { $0 + $1.bytes }
 
         HStack {
             Text(category.label).font(.system(size: 13, weight: .semibold))
@@ -221,9 +232,10 @@ struct PopoverView: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.top, 10)
+        .padding(.top, 14)
         .padding(.bottom, 3)
         .accessibilityAddTraits(.isHeader)
+        .id(Self.sectionID(category))
 
         ForEach(visible) { row($0) }
 
@@ -235,6 +247,7 @@ struct PopoverView: View {
                     if let confirming, !shown.contains(confirming), actionable.contains(where: { $0.id == confirming }) {
                         self.confirming = nil
                     }
+                    scrollTarget = Self.sectionID(category)
                 } else {
                     expanded.insert(category)
                 }
@@ -242,17 +255,15 @@ struct PopoverView: View {
                 HStack {
                     Text(isExpanded ? "Show fewer" : "\(actionable.count - visible.count) more")
                     Spacer()
-                    if !isExpanded {
-                        Text(formatBytes(actionable.dropFirst(Self.visibleRows).reduce(0) { $0 + $1.bytes }))
-                            .monospacedDigit()
-                    }
+                    if !isExpanded { Text(formatBytes(hiddenBytes)).monospacedDigit() }
                 }
             }
             .buttonStyle(TextButtonStyle())
             .foregroundStyle(Theme.dim)
             .padding(.leading, FindingRow.textInset - 6)
             .padding(.trailing, 6)
-            .accessibilityLabel(isExpanded ? "Show fewer in \(category.label)" : "\(actionable.count - visible.count) more in \(category.label)")
+            .accessibilityLabel(isExpanded ? "Show fewer in \(category.label)"
+                                : "\(actionable.count - visible.count) more in \(category.label), \(formatBytes(hiddenBytes))")
         }
 
         if kept.count == 1 {
@@ -267,7 +278,7 @@ struct PopoverView: View {
         FindingRow(finding: finding,
                    hovered: hovered == finding.id,
                    confirming: confirming == finding.id,
-                   cleaning: monitor.cleaning.contains(finding.id),
+                   cleaning: monitor.cleaning[finding.id] != nil,
                    failure: monitor.failures[finding.id],
                    onActivate: {
                        if confirming == finding.id {
@@ -288,6 +299,8 @@ struct PopoverView: View {
                 if inside { hovered = finding.id } else if hovered == finding.id { hovered = nil }
             }
     }
+
+    private static func sectionID(_ category: HoarderCore.Category) -> String { "section-\(category.rawValue)" }
 
     private static func signature(_ finding: Finding) -> String {
         "\(finding.verdict.rawValue)|\(finding.cleanup ?? "")"
@@ -416,6 +429,7 @@ struct FindingRow: View {
     let onCancel: () -> Void
 
     @AccessibilityFocusState private var panelFocused: Bool
+    @AccessibilityFocusState private var rowFocused: Bool
 
     private var cleanable: Bool { finding.verdict != .keep && finding.cleanup != nil }
     private var kept: Bool { finding.verdict == .keep }
@@ -429,6 +443,7 @@ struct FindingRow: View {
                 .accessibilityLabel("\(finding.title), \(finding.verdict.spoken), \(formatBytes(finding.bytes)), \(finding.detail)")
                 .accessibilityValue(cleaning ? "cleaning" : failure.map { "not cleaned, \($0)" } ?? "")
                 .accessibilityHint(cleanable ? "Shows the cleanup command" : "Shows where it is")
+                .accessibilityFocused($rowFocused)
 
             if let failure {
                 Text("Not cleaned: \(failure)")
@@ -445,6 +460,10 @@ struct FindingRow: View {
             if confirming { panel }
         }
         .background(confirming ? Theme.panel : hovered ? Theme.hover : .clear)
+        // VoiceOver goes back to the row when its panel closes.
+        .onChange(of: confirming) { _, open in
+            if !open { rowFocused = true }
+        }
     }
 
     private var line: some View {
@@ -452,7 +471,11 @@ struct FindingRow: View {
             Dot(verdict: finding.verdict).padding(.top, 5)
             Group {
                 if confirming {
-                    title.lineLimit(2)
+                    // Open: the closed two-line layout, title wrapping, so the reason stays with it.
+                    VStack(alignment: .leading, spacing: 1) {
+                        title.lineLimit(2)
+                        reason.fixedSize(horizontal: false, vertical: true)
+                    }
                 } else {
                     // The reason shows whole: beside the title when it fits, otherwise under it.
                     ViewThatFits(in: .horizontal) {
@@ -507,9 +530,11 @@ struct FindingRow: View {
 
     private var panel: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(finding.detail)
-                .font(.system(size: 12))
-                .fixedSize(horizontal: false, vertical: true)
+            if cleanable, finding.cleanup?.hasPrefix("docker volume prune") == true {
+                Text("Deletes the volumes' data; not undoable")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.amber)
+            }
             if cleanable, finding.category == .worktree, finding.cleanup?.contains("worktree remove") == true {
                 Text("Removes the folder; the branch and its commits stay")
                     .font(.system(size: 12))
@@ -536,7 +561,7 @@ struct FindingRow: View {
             }
             HStack(spacing: 0) {
                 if cleanable && !cleaning {
-                    Button("Run ↩", action: onRun)
+                    Button(action: onRun) { Text("Run \(Image(systemName: "return"))") }
                         .foregroundStyle(Theme.color(finding.verdict))
                         .keyboardShortcut(.defaultAction)
                         .accessibilityLabel("Run cleanup for \(finding.title)")

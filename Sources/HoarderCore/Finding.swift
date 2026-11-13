@@ -71,14 +71,26 @@ public struct Report: Codable, Sendable {
 }
 
 public extension Report {
-    /// The report after a finding was cleaned, so the list updates without waiting for a rescan.
+    /// The report after a finding was cleaned, so the list updates without waiting for a rescan. Rows
+    /// inside it go too (a worktree's node_modules), and a row containing it shrinks by its size.
     func removing(_ finding: Finding) -> Report {
-        Report(findings: findings.filter { $0.id != finding.id }, notes: notes, scannedAt: scannedAt, duration: duration)
+        let inside = { (path: String, of: String) in path.hasPrefix(of + "/") }
+        let rest = findings.compactMap { other -> Finding? in
+            if other.id == finding.id { return nil }
+            if let path = other.paths.first, finding.paths.contains(where: { path == $0 || inside(path, $0) }) { return nil }
+            var other = other
+            if let path = finding.paths.first, other.paths.contains(where: { inside(path, $0) }) {
+                other.bytes = max(0, other.bytes - finding.bytes)
+            }
+            return other
+        }
+        return Report(findings: rest, notes: notes, scannedAt: scannedAt, duration: duration)
     }
 }
 
 /// One format for every size: whole MB under 1 GB, otherwise GB to one decimal, so a column of sizes lines up.
 public func formatBytes(_ bytes: Int64) -> String {
-    let gigabytes = Double(bytes) / 1e9
-    return gigabytes < 1 ? "\(Int((gigabytes * 1000).rounded())) MB" : String(format: "%.1f GB", gigabytes)
+    let megabytes = (Double(bytes) / 1e6).rounded()
+    if bytes > 0 && megabytes < 1 { return "< 1 MB" }
+    return megabytes < 1000 ? "\(Int(megabytes)) MB" : String(format: "%.1f GB", Double(bytes) / 1e9)
 }

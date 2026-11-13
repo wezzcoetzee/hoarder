@@ -12,7 +12,8 @@ final class Monitor {
     private(set) var disk = DiskSpace.current()
     private(set) var config = Config()
     private(set) var scanning = false
-    private(set) var cleaning: Set<Finding.ID> = []
+    /// Rows being cleaned, with the name the header shows, kept here so a scan cannot drop the line.
+    private(set) var cleaning: [Finding.ID: String] = [:]
     private(set) var alertState: AlertState
     private(set) var opensAtLogin = SMAppService.mainApp.status == .enabled
     /// Shown in the header. Kept apart, because config is re-read every minute and must not wipe a
@@ -23,6 +24,8 @@ final class Monitor {
     private(set) var failures: [Finding.ID: String] = [:]
     /// "Cleaned X, 2.1 GB" after a clean succeeds, until the popover closes.
     private(set) var lastCleaned: String?
+    /// "Not cleaned: X, see its row" after a clean fails, until the popover closes.
+    private(set) var lastFailed: String?
     /// The user turned Hoarder's notifications off, so low-disk alerts cannot arrive.
     private(set) var notificationsOff = false
     /// Cleaned while a scan was running, so that scan's result does not bring the rows back.
@@ -40,7 +43,7 @@ final class Monitor {
 
     /// A still monitor for `--snapshot`: shows the given state, never scans, alerts or cleans.
     init(preview report: Report?, disk: DiskSpace, config: Config, alertState: AlertState, scanning: Bool,
-         cleaning: Set<Finding.ID>, failures: [Finding.ID: String], lastCleaned: String?, notificationsOff: Bool) {
+         cleaning: [Finding.ID: String], failures: [Finding.ID: String], lastCleaned: String?, lastFailed: String?, notificationsOff: Bool) {
         self.report = report
         self.disk = disk
         self.config = config
@@ -49,6 +52,7 @@ final class Monitor {
         self.cleaning = cleaning
         self.failures = failures
         self.lastCleaned = lastCleaned
+        self.lastFailed = lastFailed
         self.notificationsOff = notificationsOff
     }
 
@@ -74,11 +78,11 @@ final class Monitor {
     }
 
     func clean(_ finding: Finding) async {
-        guard !cleaning.contains(finding.id) else { return }
-        cleaning.insert(finding.id)
+        guard cleaning[finding.id] == nil else { return }
+        cleaning[finding.id] = finding.fullName
         failures[finding.id] = nil
         let result = await Hoarder.clean(finding)
-        cleaning.remove(finding.id)
+        cleaning[finding.id] = nil
         if result.ok {
             report = report?.removing(finding)
             if scanning { cleanedDuringScan.insert(finding.id) }
@@ -95,14 +99,18 @@ final class Monitor {
                 line.hasPrefix(prefix) ? String(line.dropFirst(prefix.count)) : line
             }
             failures[finding.id] = String(reason.prefix(240))
+            lastFailed = "Not cleaned: \(finding.fullName), see its row"
             AccessibilityNotification.Announcement("\(finding.fullName) not cleaned").post()
+            // git refuses a worktree that changed since the scan; a rescan shows it as kept, with why.
+            if finding.category == .worktree { Task { await scan() } }
         }
         refreshDisk()
     }
 
-    /// The success line has been seen once the popover closes.
+    /// The outcome lines have been seen once the popover closes.
     func dismissCleaned() {
         lastCleaned = nil
+        lastFailed = nil
     }
 
     func snooze() {

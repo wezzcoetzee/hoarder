@@ -21,6 +21,7 @@ enum Snapshot {
         /// Finding id to the error shown under that row.
         var failures: [Finding.ID: String]?
         var lastCleaned: String?
+        var lastFailed: String?
         var notificationsOff: Bool?
         /// Shows the whole list instead of capping it at the popover's scroll height.
         var full: Bool?
@@ -45,7 +46,8 @@ enum Snapshot {
         }
         let monitor = Monitor(preview: report, disk: disk,
                               config: config, alertState: alertState, scanning: state.scanning ?? false,
-                              cleaning: Set([state.cleaning].compactMap { $0 }), failures: state.failures ?? [:], lastCleaned: state.lastCleaned,
+                              cleaning: cleaningNames(state.cleaning, in: report), failures: state.failures ?? [:], lastCleaned: state.lastCleaned,
+                              lastFailed: state.lastFailed,
                               notificationsOff: state.notificationsOff ?? false)
 
         _ = NSApplication.shared
@@ -56,6 +58,11 @@ enum Snapshot {
         let label = MenuBarLabel(monitor: monitor)
             .padding(.horizontal, 10).frame(height: 24).background(Color(white: 0.16))
         try write(label, to: output.replacingOccurrences(of: ".png", with: "-menubar.png"))
+    }
+
+    private static func cleaningNames(_ id: Finding.ID?, in report: Report?) -> [Finding.ID: String] {
+        guard let id, let finding = report?.findings.first(where: { $0.id == id }) else { return [:] }
+        return [id: finding.fullName]
     }
 
     /// Lays the view out twice with the run loop turning in between, so measured sizes settle.
