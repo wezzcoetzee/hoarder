@@ -50,6 +50,8 @@ The app is not notarized, so the first launch shows "Apple could not verify Hoar
 xattr -dr com.apple.quarantine /Applications/Hoarder.app
 ```
 
+Setting up with a coding agent? Point it at [`.claude/skills/setup-hoarder`](.claude/skills/setup-hoarder/SKILL.md), which walks through install, config and adding devices, checking each step.
+
 ## Run it
 
 ```sh
