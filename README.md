@@ -107,6 +107,10 @@ Worktree rules come from the `worktree-cleanup` skill: orphan, then hold (dirty,
 
 Clean all safe runs every reclaimable row's command, one at a time. Kept rows can be cleaned one by one: a recent worktree or active node_modules runs its plain command, while a dirty worktree uses `--force` and a locked one `-f -f`, with a red warning that the uncommitted changes go. Rows with no command (the Docker VM disk, app data) only show where they are.
 
+Docker volumes get a row each instead of one `docker volume prune`, which since Docker 23 skips named volumes and so frees little of what `docker system df` calls reclaimable. A registry's volume is kept with no command: pushed images are not a cache. A BuildKit state volume (`buildx_buildkit_<node>_state`) is kept while `docker buildx ls` lists its builder or a container mounts it, and is offered for `docker volume rm` only once neither does, as CI builders that are removed with their state kept leave these behind. Other unused volumes are review rows; volumes in use are not listed.
+
+On Linux, a `/tmp` mounted as tmpfs is shown as kept with its used size and no command: clearing it frees RAM and swap, not disk.
+
 Bun cleanup removes the reported `~/.bun/install/cache` directory directly, so it works outside a project too. pnpm cleanup requires `pnpm` on the target machine's login-shell `PATH`; it runs `pnpm store prune` to retain packages in use.
 
 ## Alerts
