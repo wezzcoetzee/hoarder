@@ -4,8 +4,17 @@ import SwiftUI
 
 /// `HoarderApp --snapshot <report.json|none> <out.png> [state.json]` renders the popover from a saved
 /// `hoarder --json` report, and the menu bar label beside it as `<out>-menubar.png`, to check the UI
-/// without opening the menu bar. `none` shows the first scan. The state file sets everything else.
+/// without opening the menu bar. `none` shows the first scan. The state file sets everything else; the
+/// report and the per-row keys apply to this Mac, and `devices` adds the device strip.
 enum Snapshot {
+    struct DeviceState: Decodable {
+        var host: String
+        var freeGB: Double?
+        var alertBelowGB: Int?
+        /// Shown in the header and marks the device unreachable in the strip.
+        var problem: String?
+    }
+
     /// Every key is optional.
     struct State: Decodable {
         var freeGB: Double?
@@ -27,6 +36,7 @@ enum Snapshot {
         var notificationsOff: Bool?
         /// Shows the whole list instead of capping it at the popover's scroll height.
         var full: Bool?
+        var devices: [DeviceState]?
     }
 
     @MainActor
@@ -38,18 +48,25 @@ enum Snapshot {
 
         var config = Config()
         config.alertBelowGB = state.alertBelowGB ?? config.alertBelowGB
-        var alertState = AlertState()
+        config.devices = (state.devices ?? []).map { Device(host: $0.host, alertBelowGB: $0.alertBelowGB) }
         let disk = DiskSpace(free: Int64((state.freeGB ?? 22) * 1e9), total: 994_000_000_000)
-        // As in the app: the alert is sent once a report exists, unless snoozed.
-        if state.snoozed == true {
-            alertState.snooze(until: .now.addingTimeInterval(86_400))
-        } else if report != nil {
-            _ = alertState.evaluate(free: disk.free, limit: config.alertLimitBytes)
+        let local = Machine(preview: nil, report: report, disk: disk, config: config,
+                            alertState: alertState(free: disk.free, limitGB: config.alertBelowGB,
+                                                   alerted: report != nil, snoozed: state.snoozed == true),
+                            scanning: state.scanning ?? false, cleaning: cleaningNames(state.cleaning, in: report),
+                            failures: state.failures ?? [:], lastCleaned: state.lastCleaned,
+                            lastFailed: state.lastFailed, problem: nil)
+        let devices = (state.devices ?? []).map { device in
+            let disk = device.freeGB.map { DiskSpace(free: Int64($0 * 1e9), total: 226_000_000_000) }
+            let limit = device.alertBelowGB ?? config.alertBelowGB
+            let machine = Machine(preview: device.host, report: nil, disk: disk, config: config,
+                                  alertState: alertState(free: disk?.free ?? .max, limitGB: limit, alerted: true, snoozed: false),
+                                  scanning: false, cleaning: [:], failures: [:], lastCleaned: nil, lastFailed: nil,
+                                  problem: device.problem)
+            machine.device = Device(host: device.host, alertBelowGB: device.alertBelowGB)
+            return machine
         }
-        let monitor = Monitor(preview: report, disk: disk,
-                              config: config, alertState: alertState, scanning: state.scanning ?? false,
-                              cleaning: cleaningNames(state.cleaning, in: report), failures: state.failures ?? [:], lastCleaned: state.lastCleaned,
-                              lastFailed: state.lastFailed,
+        let monitor = Monitor(preview: [local] + devices, selected: Machine.localID, config: config,
                               notificationsOff: state.notificationsOff ?? false)
 
         _ = NSApplication.shared
@@ -61,6 +78,17 @@ enum Snapshot {
         let label = MenuBarLabel(monitor: monitor)
             .padding(.horizontal, 10).frame(height: 24).background(Color(white: 0.16))
         try write(label, to: output.replacingOccurrences(of: ".png", with: "-menubar.png"))
+    }
+
+    /// As in the app: the alert is sent once a report exists, unless snoozed.
+    private static func alertState(free: Int64, limitGB: Int, alerted: Bool, snoozed: Bool) -> AlertState {
+        var state = AlertState()
+        if snoozed {
+            state.snooze(until: .now.addingTimeInterval(86_400))
+        } else if alerted {
+            _ = state.evaluate(free: free, limit: Int64(limitGB) * 1_000_000_000)
+        }
+        return state
     }
 
     private static func cleaningNames(_ id: Finding.ID?, in report: Report?) -> [Finding.ID: String] {

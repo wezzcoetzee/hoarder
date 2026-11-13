@@ -44,7 +44,7 @@ func modificationDate(_ path: String) -> Date? {
     (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
 }
 
-func shellQuote(_ value: String) -> String {
+public func shellQuote(_ value: String) -> String {
     "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
 

@@ -1,6 +1,6 @@
 import Foundation
 
-public struct DiskSpace: Sendable, Equatable {
+public struct DiskSpace: Codable, Sendable, Equatable {
     public let free: Int64
     public let total: Int64
 
@@ -12,10 +12,17 @@ public struct DiskSpace: Sendable, Equatable {
     /// Free space as `df` reports it. Finder's figure also counts purgeable space, which reads calmer
     /// than it is when a build is filling the disk.
     public static func current(volume: String = "/") -> DiskSpace? {
+        #if os(Linux)
+        var stats = statvfs()
+        guard statvfs(volume, &stats) == 0 else { return nil }
+        let block = Int64(stats.f_frsize)
+        return DiskSpace(free: Int64(stats.f_bavail) * block, total: Int64(stats.f_blocks) * block)
+        #else
         let keys: Set<URLResourceKey> = [.volumeAvailableCapacityKey, .volumeTotalCapacityKey]
         guard let values = try? URL(fileURLWithPath: volume).resourceValues(forKeys: keys),
               let free = values.volumeAvailableCapacity, let total = values.volumeTotalCapacity else { return nil }
         return DiskSpace(free: Int64(free), total: Int64(total))
+        #endif
     }
 }
 

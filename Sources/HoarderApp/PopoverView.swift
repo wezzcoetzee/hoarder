@@ -83,11 +83,19 @@ struct PopoverView: View {
         _showingKept = State(initialValue: showingKept)
     }
 
+    /// The device the popover shows. With no devices configured it is always this Mac and the strip
+    /// is hidden, so the popover looks as it did before devices existed.
+    private var machine: Machine { monitor.selected }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if monitor.machines.count > 1 {
+                deviceStrip
+                Theme.line.frame(height: 1)
+            }
             header
             Theme.line.frame(height: 1)
-            if let report = monitor.report {
+            if let report = machine.report {
                 // A menu bar window sizes to its content, and a ScrollView has no height of its own,
                 // so the list is measured and the scroll area takes that height, up to a cap.
                 ScrollViewReader { proxy in
@@ -146,8 +154,8 @@ struct PopoverView: View {
             Text(heading)
                 .font(.system(size: 16, weight: .semibold))
                 .accessibilityAddTraits(.isHeader)
-                .foregroundStyle(monitor.isCritical ? Theme.red : monitor.isLow ? Theme.amber : .white)
-            if let report = monitor.report {
+                .foregroundStyle(machine.isCritical ? Theme.red : machine.isLow ? Theme.amber : .white)
+            if let report = machine.report {
                 let totals = [Verdict.reclaimable, .review].map { ($0, report.total($0)) }.filter { $0.1 > 0 }
                 if totals.isEmpty {
                     Text("Nothing to clean").foregroundStyle(Theme.dim)
@@ -169,22 +177,22 @@ struct PopoverView: View {
             } else {
                 Text("The first scan takes about a minute").foregroundStyle(Theme.dim)
             }
-            ForEach(monitor.cleaning.values.sorted(), id: \.self) {
+            ForEach(machine.cleaning.values.sorted(), id: \.self) {
                 Text("Cleaning \($0)").foregroundStyle(Theme.dim)
             }
-            if let lastCleaned = monitor.lastCleaned {
+            if let lastCleaned = machine.lastCleaned {
                 Text(lastCleaned).foregroundStyle(Theme.green)
             }
-            if let lastFailed = monitor.lastFailed {
+            if let lastFailed = machine.lastFailed {
                 Text(lastFailed).foregroundStyle(Theme.red)
             }
-            if let snoozedUntil = monitor.alertState.snoozedUntil, monitor.alertState.isSnoozed() {
+            if let snoozedUntil = machine.alertState.snoozedUntil, machine.alertState.isSnoozed() {
                 let day = Calendar.current.isDateInToday(snoozedUntil) ? "today" : "tomorrow"
                 HStack(spacing: 0) {
                     Text("Alert snoozed until \(snoozedUntil.formatted(date: .omitted, time: .shortened)) \(day)")
                         .foregroundStyle(Theme.dim)
                     // ⌘S, like Snooze, which takes its place again once unsnoozed.
-                    Button("Unsnooze") { monitor.unsnooze() }
+                    Button("Unsnooze") { machine.unsnooze() }
                         .buttonStyle(TextButtonStyle())
                         .keyboardShortcut("s")
                         .help("Unsnooze the low-disk alert (⌘S)")
@@ -192,7 +200,7 @@ struct PopoverView: View {
                 }
                 .padding(.vertical, -5)
             }
-            if monitor.isLow && monitor.notificationsOff {
+            if machine.isLow && monitor.notificationsOff {
                 HStack(spacing: 0) {
                     Text("Notifications are off").foregroundStyle(Theme.dim)
                     Button("Open Settings") { NSWorkspace.shared.open(Notifier.settingsURL) }
@@ -200,10 +208,10 @@ struct PopoverView: View {
                 }
                 .padding(.vertical, -5)
             }
-            ForEach([monitor.configError, monitor.loginError].compactMap { $0 }, id: \.self) {
+            ForEach([machine.problem, monitor.configError, monitor.loginError].compactMap { $0 }, id: \.self) {
                 Text($0).foregroundStyle(Theme.red).fixedSize(horizontal: false, vertical: true)
             }
-            ForEach(monitor.report?.notes ?? [], id: \.self) {
+            ForEach(machine.report?.notes ?? [], id: \.self) {
                 Text($0).foregroundStyle(Theme.dim).fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -215,7 +223,7 @@ struct PopoverView: View {
     /// anything is cleaning.
     @ViewBuilder
     private var cleanSafeButton: some View {
-        if !confirmingSafe && !monitor.safeToClean.isEmpty && monitor.cleaning.isEmpty {
+        if !confirmingSafe && !machine.safeToClean.isEmpty && machine.cleaning.isEmpty {
             Button {
                 confirming = nil
                 confirmingSafe = true
@@ -225,7 +233,7 @@ struct PopoverView: View {
             }
             .buttonStyle(TextButtonStyle())
             .foregroundStyle(Theme.green)
-            .accessibilityHint("Asks before running \(monitor.safeToClean.count) cleanups")
+            .accessibilityHint("Asks before running \(machine.safeToClean.count) cleanups")
             .padding(.vertical, -5)
             .padding(.trailing, -6)
         }
@@ -233,14 +241,14 @@ struct PopoverView: View {
 
     @ViewBuilder
     private var cleanSafeConfirm: some View {
-        let count = monitor.safeToClean.count
-        if confirmingSafe && count > 0 && monitor.cleaning.isEmpty {
+        let count = machine.safeToClean.count
+        if confirmingSafe && count > 0 && machine.cleaning.isEmpty {
             HStack(spacing: 0) {
                 Text("Runs all \(count) green rows, one at a time").foregroundStyle(Theme.dim)
                 Spacer(minLength: 8)
                 Button {
                     confirmingSafe = false
-                    Task { await monitor.cleanSafe() }
+                    Task { await machine.cleanSafe() }
                 } label: { Text("Run \(Image(systemName: "return"))") }
                     .foregroundStyle(Theme.green)
                     .keyboardShortcut(.defaultAction)
@@ -254,9 +262,62 @@ struct PopoverView: View {
         }
     }
 
+    // MARK: Devices
+
+    /// One cell per machine, each with its free space. ⌘1 to ⌘9 pick them in order.
+    private var deviceStrip: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(monitor.machines.enumerated()), id: \.element.id) { index, device in
+                let on = device.id == machine.id
+                if index > 0 { Theme.line.frame(width: 1) }
+                Button { select(device) } label: {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(device.name).font(.system(size: 12, weight: .semibold)).lineLimit(1).truncationMode(.middle)
+                        Text(Self.status(device)).foregroundStyle(Self.statusColor(device)).monospacedDigit().lineLimit(1)
+                    }
+                    .font(.system(size: 12))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(on ? Theme.panel : .clear)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(index < 9 ? KeyboardShortcut(KeyEquivalent(Character("\(index + 1)"))) : nil)
+                .accessibilityAddTraits(on ? .isSelected : [])
+                .accessibilityLabel("\(device.name), \(Self.status(device))")
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// A device that answered once keeps its last free space, in red while its header says what is wrong.
+    private static func status(_ device: Machine) -> String {
+        guard let disk = device.disk else {
+            return device.problem != nil ? "unreachable" : device.scanning ? "connecting" : "checking"
+        }
+        return "\(gigabytes(disk.free)) free"
+    }
+
+    private static func statusColor(_ device: Machine) -> Color {
+        if device.problem != nil || device.isCritical { return Theme.red }
+        return device.isLow ? Theme.amber : Theme.dim
+    }
+
+    /// Open panels, hover and expanded sections belong to the device they were opened on.
+    private func select(_ device: Machine) {
+        guard device.id != monitor.selectedID else { return }
+        monitor.selectedID = device.id
+        hovered = nil
+        confirming = nil
+        confirmingSafe = false
+        expanded = []
+        showingKept = []
+    }
+
     private var heading: String {
-        guard let disk = monitor.disk else { return "Free space unknown" }
-        return freeSpace(disk.free, limitGB: monitor.config.alertBelowGB, low: monitor.isLow)
+        guard let disk = machine.disk else { return "Free space unknown" }
+        return freeSpace(disk.free, limitGB: machine.alertBelowGB, low: machine.isLow)
     }
 
     // MARK: Sections
@@ -336,10 +397,12 @@ struct PopoverView: View {
 
     private func row(_ finding: Finding) -> some View {
         FindingRow(finding: finding,
+                   host: machine.host,
+                   dockerInVM: machine.dockerInVM,
                    hovered: hovered == finding.id,
                    confirming: confirming == finding.id,
-                   cleaning: monitor.cleaning[finding.id] != nil,
-                   failure: monitor.failures[finding.id],
+                   cleaning: machine.cleaning[finding.id] != nil,
+                   failure: machine.failures[finding.id],
                    onActivate: {
                        if confirming == finding.id {
                            confirming = nil
@@ -352,7 +415,7 @@ struct PopoverView: View {
                    },
                    onRun: {
                        confirming = nil
-                       Task { await monitor.clean(finding) }
+                       Task { await machine.clean(finding) }
                    },
                    onCancel: { confirming = nil })
             .id(finding.id)
@@ -399,8 +462,8 @@ struct PopoverView: View {
             .padding(.leading, 6)
             Spacer(minLength: 8)
             // Only once an alert was sent: before that there is nothing to snooze.
-            if monitor.isLow && monitor.alertState.alerted && !monitor.alertState.isSnoozed() && !monitor.notificationsOff {
-                Button("Snooze 1 day") { monitor.snooze() }
+            if machine.isLow && machine.alertState.alerted && !machine.alertState.isSnoozed() && !monitor.notificationsOff {
+                Button("Snooze 1 day") { machine.snooze() }
                     .keyboardShortcut("s")
                     .help("Snooze the low-disk alert for 1 day (⌘S)")
                     .accessibilityLabel("Snooze low-disk alert for 1 day")
@@ -411,18 +474,18 @@ struct PopoverView: View {
                 Button("Rescan") { Task { await monitor.scan() } }
                     .keyboardShortcut("r")
                     .help("Rescan (⌘R)")
-                    .opacity(monitor.scanning ? 0 : 1)
-                    .disabled(monitor.scanning)
-                    .accessibilityHidden(monitor.scanning)
+                    .opacity(machine.scanning ? 0 : 1)
+                    .disabled(machine.scanning)
+                    .accessibilityHidden(machine.scanning)
                 Text("Scanning")
                     .foregroundStyle(Theme.dim)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 5)
-                    .opacity(monitor.scanning ? 1 : 0)
-                    .accessibilityHidden(!monitor.scanning)
+                    .opacity(machine.scanning ? 1 : 0)
+                    .accessibilityHidden(!machine.scanning)
             }
             Menu {
-                Button("Alert under \(monitor.config.alertBelowGB) GB") {}.disabled(true)
+                Button("Alert under \(machine.alertBelowGB) GB") {}.disabled(true)
                 Toggle("Open at login", isOn: Binding(get: { monitor.opensAtLogin }, set: { monitor.setOpensAtLogin($0) }))
                 Button("Edit config") { monitor.editConfig() }
                 Divider()
@@ -445,7 +508,7 @@ struct PopoverView: View {
     }
 
     private func scannedLabel(now: Date) -> String {
-        guard let report = monitor.report else { return "" }
+        guard let report = machine.report else { return "" }
         let minutes = Int(now.timeIntervalSince(report.scannedAt) / 60)
         switch minutes {
         case ..<1: return "Scanned just now"
@@ -482,6 +545,9 @@ struct FindingRow: View {
     private static let commandCap: CGFloat = 120
 
     let finding: Finding
+    /// The device the command runs on over SSH; nil for this Mac.
+    let host: String?
+    let dockerInVM: Bool
     let hovered: Bool
     let confirming: Bool
     let cleaning: Bool
@@ -495,6 +561,12 @@ struct FindingRow: View {
 
     private var cleanable: Bool { finding.cleanup != nil }
     private var kept: Bool { finding.verdict == .keep }
+
+    /// Another device's command, as the SSH hop that runs it there.
+    private var displayedCommand: String? {
+        guard let command = finding.cleanup else { return nil }
+        return host.map { "ssh \($0) \(shellQuote(command))" } ?? command
+    }
 
     /// What forcing loses, when the command forces git past what made the row kept.
     private var forceWarning: String? {
@@ -616,13 +688,13 @@ struct FindingRow: View {
                     .font(.system(size: 12))
                     .foregroundStyle(Theme.dim)
             }
-            if cleanable, finding.category == .docker {
+            if cleanable, finding.category == .docker, dockerInVM {
                 Text("Frees space in Docker's disk; the Mac gets it back later")
                     .font(.system(size: 12))
                     .foregroundStyle(Theme.dim)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if cleanable, let command = finding.cleanup {
+            if cleanable, let command = displayedCommand {
                 // A many-folder command scrolls in a capped box, so Run stays in view. A hidden copy
                 // sizes the box in the same layout pass; the scroll view is laid over it.
                 let text = Text(command)
@@ -650,8 +722,10 @@ struct FindingRow: View {
                         .keyboardShortcut(.cancelAction)
                         .accessibilityFocused($panelFocused)
                 }
-                // Orphaned worktrees list folders that are already gone.
-                if let first = finding.paths.first, exists(atPath: first) { Button("Show in Finder", action: reveal) }
+                // Orphaned worktrees list folders that are already gone, and another device's paths are not here.
+                if host == nil, let first = finding.paths.first, exists(atPath: first) {
+                    Button("Show in Finder", action: reveal)
+                }
             }
             .buttonStyle(TextButtonStyle())
             .font(.system(size: 12))

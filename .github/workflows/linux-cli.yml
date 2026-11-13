@@ -1,0 +1,34 @@
+name: Linux CLI
+
+# Tests HoarderCore on Linux and builds the hoarder CLI that Linux devices run, one binary per arch.
+# CI calls it on every PR; the release uploads its binaries beside the DMG.
+on:
+  workflow_call:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    # Jammy's glibc is old enough that the binary runs on any current distro.
+    container: swift:6.2-jammy
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: swift test
+      - name: Build
+        run: |
+          swift build -c release --product hoarder --static-swift-stdlib
+          mkdir -p dist/linux
+          cp "$(swift build -c release --show-bin-path)/hoarder" "dist/linux/hoarder-linux-${{ matrix.arch }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hoarder-linux-${{ matrix.arch }}
+          path: dist/linux/hoarder-linux-${{ matrix.arch }}
+          if-no-files-found: error

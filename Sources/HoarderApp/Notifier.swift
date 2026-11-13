@@ -23,17 +23,20 @@ enum Notifier {
 
     static let settingsURL = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=dev.hoarder.app")!
 
-    static func lowDisk(free: Int64, limitGB: Int, report: Report?) {
+    /// One notification per machine, titled with its host when it is not this Mac.
+    @MainActor
+    static func lowDisk(on machine: Machine, free: Int64) {
         guard available else { return }
-        let title = freeSpace(free, limitGB: limitGB, low: true)
-        let body = report.map(suggestion) ?? "Open Hoarder to see what can go."
+        let title = (machine.host.map { "\($0): " } ?? "") + freeSpace(free, limitGB: machine.alertBelowGB, low: true)
+        let body = machine.report.map { suggestion($0, dockerInVM: machine.dockerInVM) } ?? "Open Hoarder to see what can go."
+        let identifier = machine.host.map { "low-disk-\($0)" } ?? "low-disk"
         Task {
             let content = UNMutableNotificationContent()
             content.title = title
             content.body = body
             content.sound = .default
             try? await UNUserNotificationCenter.current()
-                .add(UNNotificationRequest(identifier: "low-disk", content: content, trigger: nil))
+                .add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil))
         }
     }
 }
@@ -55,12 +58,12 @@ func freeSpace(_ free: Int64, limitGB: Int, low: Bool) -> String {
     low ? "\(gigabytes(free)) free, under your \(limitGB) GB limit" : "\(gigabytes(free)) free"
 }
 
-/// What to clean first. A Docker prune frees space inside Docker's disk rather than on the Mac, so
-/// the biggest other row is named when there is one. Findings are sorted largest first.
-private func suggestion(_ report: Report) -> String {
+/// What to clean first. In a VM, a Docker prune frees space inside Docker's disk rather than on the
+/// host, so the biggest other row is named when there is one. Findings are sorted largest first.
+private func suggestion(_ report: Report, dockerInVM: Bool) -> String {
     let safe = report.findings.filter { $0.verdict == .reclaimable }
-    if let biggest = safe.first(where: { $0.category != .docker }) ?? safe.first {
-        let docker = report.total(.reclaimable, in: .docker)
+    if let biggest = safe.first(where: { !dockerInVM || $0.category != .docker }) ?? safe.first {
+        let docker = dockerInVM ? report.total(.reclaimable, in: .docker) : 0
         let inside = docker > 0 ? " (\(formatBytes(docker)) inside Docker's disk)" : ""
         return "\(formatBytes(report.total(.reclaimable))) is safe to clean\(inside). Biggest: \(biggest.fullName), \(formatBytes(biggest.bytes))."
     }

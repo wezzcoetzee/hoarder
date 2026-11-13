@@ -111,3 +111,23 @@ private func finding(_ path: String, _ bytes: Int64) -> Finding {
     #expect(Config.unknownKeys(in: file) == ["alertBelowGb", "projectRoot"])
     #expect(Config.unknownKeys(in: Data("not json".utf8)).isEmpty)
 }
+
+@Test func readsDevicesWithTheirOverrides() throws {
+    let file = Data(#"{"alertBelowGB": 40, "devices": [{"host": "homeserver", "alertBelowGB": 20}, {"host": "mini"}]}"#.utf8)
+    let config = try JSONDecoder().decode(Config.self, from: file)
+    #expect(config.devices == [Device(host: "homeserver", alertBelowGB: 20), Device(host: "mini")])
+    #expect(config.alertBelowGB(for: config.devices[0]) == 20)
+    #expect(config.alertBelowGB(for: config.devices[1]) == 40)
+    #expect(Config.unknownKeys(in: file).isEmpty)
+}
+
+@Test(arguments: [
+    (255, "Host key verification failed.\n", "Host key not trusted, run ssh box once to accept it"),
+    (255, "ssh: connect to host box port 22: Operation timed out\n", "box is unreachable"),
+    (255, "wezz@box: Permission denied (publickey).\n", "SSH refused the login to box"),
+    (1, "warning: noise\nCould not read free space\n", "box: Could not read free space"),
+    (2, "", "box: exited with status 2"),
+])
+func describesSSHFailuresInWordsThatSayWhatToDo(status: Int32, stderr: String, expected: String) {
+    #expect(Remote.describe(Shell.Output(status: status, stdout: "", stderr: stderr), host: "box") == expected)
+}
