@@ -12,6 +12,9 @@ public struct Config: Codable, Sendable {
     public var alertBelowGB = 40
     /// How often the menu bar app runs a full scan. Free space is checked every minute regardless.
     public var scanEveryMinutes = 60
+    /// Other machines on the tailnet to scan over SSH, by host name. Opt-in, so nothing is scanned
+    /// just for being online.
+    public var devices: [Device] = []
 
     public static let fileURL = URL(fileURLWithPath: expand("~/.config/hoarder/config.json"))
 
@@ -25,6 +28,7 @@ public struct Config: Codable, Sendable {
         idleNodeModulesDays = try container.decodeIfPresent(Int.self, forKey: .idleNodeModulesDays) ?? defaults.idleNodeModulesDays
         alertBelowGB = try container.decodeIfPresent(Int.self, forKey: .alertBelowGB) ?? defaults.alertBelowGB
         scanEveryMinutes = try container.decodeIfPresent(Int.self, forKey: .scanEveryMinutes) ?? defaults.scanEveryMinutes
+        devices = try container.decodeIfPresent([Device].self, forKey: .devices) ?? defaults.devices
     }
 
     public static func load() throws -> Config {
@@ -40,6 +44,32 @@ public struct Config: Codable, Sendable {
         return file.keys.filter { known[$0] == nil }.sorted()
     }
 
+    /// Writes the settings that differ from the defaults, so the file stays short and a changed default
+    /// still reaches anyone who never touched that setting. Keys Config does not know are left as they
+    /// are, so a misspelling stays visible instead of being silently dropped.
+    public func save(to url: URL = fileURL) throws {
+        var file = (try? Data(contentsOf: url))
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        let mine = try Self.object(self), defaults = try Self.object(Config())
+        for (key, value) in mine {
+            file[key] = try Self.same(value, defaults[key]) ? nil : value
+        }
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: file, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+            .write(to: url, options: .atomic)
+    }
+
+    private static func object(_ config: Config) throws -> [String: Any] {
+        try JSONSerialization.jsonObject(with: JSONEncoder().encode(config)) as? [String: Any] ?? [:]
+    }
+
+    /// JSON values compared by their serialized form, which works the same on macOS and Linux.
+    private static func same(_ a: Any, _ b: Any?) throws -> Bool {
+        guard let b else { return false }
+        let encode = { try JSONSerialization.data(withJSONObject: ["v": $0], options: .sortedKeys) }
+        return try encode(a) == encode(b)
+    }
+
     /// Writes the defaults so there is a file to edit. Leaves an existing file alone.
     public static func writeDefaultsIfMissing() throws {
         guard !exists(fileURL.path) else { return }
@@ -51,7 +81,28 @@ public struct Config: Codable, Sendable {
 
     public var alertLimitBytes: Int64 { Int64(alertBelowGB) * 1_000_000_000 }
 
+    /// The free-space limit for a device: its own, else the one for this Mac.
+    public func alertBelowGB(for device: Device?) -> Int {
+        device?.alertBelowGB ?? alertBelowGB
+    }
+
     var existingRoots: [String] {
         projectRoots.map(expand).filter(exists)
+    }
+}
+
+/// A machine Hoarder scans over SSH. Its scan runs there, so paths resolve on that machine.
+public struct Device: Codable, Sendable, Hashable {
+    /// What `ssh` connects to: a tailnet name, an IP, or a Host from ~/.ssh/config.
+    public var host: String
+    /// Overrides `alertBelowGB` for this device.
+    public var alertBelowGB: Int?
+    /// Overrides the device's own config; unset uses whatever that machine's config.json says.
+    public var projectRoots: [String]?
+
+    public init(host: String, alertBelowGB: Int? = nil, projectRoots: [String]? = nil) {
+        self.host = host
+        self.alertBelowGB = alertBelowGB
+        self.projectRoots = projectRoots
     }
 }

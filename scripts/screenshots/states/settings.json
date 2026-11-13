@@ -1,0 +1,6 @@
+{ "freeGB": 22, "alertBelowGB": 40, "settings": "homeserver",
+  "devices": [
+    { "host": "homeserver", "freeGB": 131, "alertBelowGB": 20, "platform": "linux x86_64",
+      "projectRoots": ["~/development", "~/.t3/worktrees"] },
+    { "host": "mac-mini", "problem": "Host key not trusted, run ssh mac-mini once to accept it" }
+  ] }

@@ -1,7 +1,19 @@
 import Foundation
 import HoarderCore
 
-let config: Config
+let arguments = CommandLine.arguments
+
+// `--free` is what the menu bar app asks a device every minute, so it skips the scan and the config.
+if arguments.contains("--free") {
+    guard let disk = DiskSpace.current() else {
+        FileHandle.standardError.write(Data("Could not read free space\n".utf8))
+        exit(1)
+    }
+    print(String(decoding: try JSONEncoder().encode(disk), as: UTF8.self))
+    exit(0)
+}
+
+var config: Config
 do {
     config = try Config.load()
 } catch {
@@ -9,9 +21,14 @@ do {
     exit(1)
 }
 
+// Each `--root <folder>` replaces projectRoots, so the app can scan a device's folders without editing
+// that device's config.
+let roots = arguments.indices.filter { arguments[$0] == "--root" && $0 + 1 < arguments.count }.map { arguments[$0 + 1] }
+if !roots.isEmpty { config.projectRoots = roots }
+
 let report = await Hoarder.scan(config: config)
 
-if CommandLine.arguments.contains("--json") {
+if arguments.contains("--json") {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     encoder.dateEncodingStrategy = .iso8601
@@ -19,7 +36,7 @@ if CommandLine.arguments.contains("--json") {
     exit(0)
 }
 
-let showCommands = CommandLine.arguments.contains("--commands")
+let showCommands = arguments.contains("--commands")
 let pad = { (text: String, width: Int) in text.padding(toLength: max(width, text.count), withPad: " ", startingAt: 0) }
 
 for verdict in [Verdict.reclaimable, .review, .keep] {

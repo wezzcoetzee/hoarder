@@ -11,3 +11,24 @@ jobs:
       contents: write
     with:
       build-command: scripts/package.sh "$VERSION"
+
+  linux:
+    uses: ./.github/workflows/linux-cli.yml
+
+  # After the release exists, so the two jobs never race to create it. Linux devices download these.
+  publish-linux:
+    needs: [release, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: hoarder-linux-*
+          merge-multiple: true
+          path: dist
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: gh release upload "$TAG" --clobber dist/hoarder-linux-*

@@ -111,3 +111,46 @@ private func finding(_ path: String, _ bytes: Int64) -> Finding {
     #expect(Config.unknownKeys(in: file) == ["alertBelowGb", "projectRoot"])
     #expect(Config.unknownKeys(in: Data("not json".utf8)).isEmpty)
 }
+
+@Test func readsDevicesWithTheirOverrides() throws {
+    let file = Data(#"{"alertBelowGB": 40, "devices": [{"host": "homeserver", "alertBelowGB": 20}, {"host": "mini"}]}"#.utf8)
+    let config = try JSONDecoder().decode(Config.self, from: file)
+    #expect(config.devices == [Device(host: "homeserver", alertBelowGB: 20), Device(host: "mini")])
+    #expect(config.alertBelowGB(for: config.devices[0]) == 20)
+    #expect(config.alertBelowGB(for: config.devices[1]) == 40)
+    #expect(Config.unknownKeys(in: file).isEmpty)
+}
+
+@Test(arguments: [
+    (255, "Host key verification failed.\n", "Host key not trusted, run ssh box once to accept it"),
+    (255, "ssh: connect to host box port 22: Operation timed out\n", "box is unreachable"),
+    (255, "wezz@box: Permission denied (publickey).\n", "SSH refused the login to box"),
+    (1, "warning: noise\nCould not read free space\n", "box: Could not read free space"),
+    (2, "", "box: exited with status 2"),
+])
+func describesSSHFailuresInWordsThatSayWhatToDo(status: Int32, stderr: String, expected: String) {
+    #expect(Remote.describe(Shell.Output(status: status, stdout: "", stderr: stderr), host: "box") == expected)
+}
+
+@Test func readsTailnetPeersByTheirMagicDNSName() {
+    let json = Data(#"{"Self": {"DNSName": "me.tail.ts.net."}, "Peer": {"a": {"HostName": "Wes's Mac mini", "DNSName": "wesleys-mac-mini.tail.ts.net.", "OS": "macOS", "Online": true}, "b": {"HostName": "localhost", "DNSName": "phone.tail.ts.net.", "OS": "iOS", "Online": false}}}"#.utf8)
+    #expect(Tailnet.parse(json) == [
+        .init(name: "phone", os: "iOS", online: false),
+        .init(name: "wesleys-mac-mini", os: "macOS", online: true),
+    ])
+    #expect(Tailnet.parse(json)?.filter(\.canScan).map(\.name) == ["wesleys-mac-mini"])
+}
+
+@Test func savesOnlyChangedSettingsAndKeepsUnknownKeys() throws {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("hoarder-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: url) }
+    try Data(#"{"alertBelowGb": 20, "scanEveryMinutes": 30}"#.utf8).write(to: url)
+    var config = Config()
+    config.alertBelowGB = 25
+    config.devices = [Device(host: "homeserver", projectRoots: ["~/development"])]
+    try config.save(to: url)
+    let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any] ?? [:]
+    // scanEveryMinutes went back to its default, so it leaves the file; the misspelling stays.
+    #expect(saved.keys.sorted() == ["alertBelowGB", "alertBelowGb", "devices"])
+    #expect(try JSONDecoder().decode(Config.self, from: Data(contentsOf: url)).devices == config.devices)
+}

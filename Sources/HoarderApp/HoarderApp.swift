@@ -32,6 +32,10 @@ struct HoarderApp: App {
             MenuBarLabel(monitor: monitor)
         }
         .menuBarExtraStyle(.window)
+
+        Settings {
+            SettingsView(monitor: monitor)
+        }
     }
 }
 
@@ -42,8 +46,11 @@ struct MenuBarLabel: View {
     let monitor: Monitor
     @Environment(\.colorScheme) private var menuBarScheme
 
+    private var local: Machine { monitor.local }
+
     var body: some View {
-        let text = monitor.disk.map { gigabytes($0.free, unit: "G") } ?? "–"
+        let free = local.disk.map { gigabytes($0.free, unit: "G") } ?? "–"
+        let text = monitor.lowDevices > 0 ? "\(free) · \(monitor.lowDevices) low" : free
         Group {
             if let color = warning {
                 Image(nsImage: tinted(label(text), color))
@@ -55,23 +62,29 @@ struct MenuBarLabel: View {
         .accessibilityLabel(spoken)
     }
 
-    /// The menu bar is light or dark independently of the popover, so the tint follows it.
+    /// The menu bar is light or dark independently of the popover, so the tint follows it. Another
+    /// device under its limit tints it amber too; only this Mac turns it red.
     private var warning: Color? {
         let light = menuBarScheme == .light
-        if monitor.isCritical { return light ? Theme.redOnLight : Theme.red }
-        if monitor.isLow { return light ? Theme.amberOnLight : Theme.amber }
+        if local.isCritical { return light ? Theme.redOnLight : Theme.red }
+        if local.isLow || monitor.lowDevices > 0 { return light ? Theme.amberOnLight : Theme.amber }
         return nil
     }
 
     private var spoken: String {
-        guard let disk = monitor.disk else { return "Hoarder, free space unknown" }
-        return "Hoarder, " + freeSpace(disk.free, limitGB: monitor.config.alertBelowGB, low: monitor.isLow)
+        let others = switch monitor.lowDevices {
+        case 0: ""
+        case 1: ", 1 other device low"
+        case let count: ", \(count) other devices low"
+        }
+        guard let disk = local.disk else { return "Hoarder, free space unknown" + others }
+        return "Hoarder, " + freeSpace(disk.free, limitGB: local.alertBelowGB, low: local.isLow) + others
     }
 
     /// Critical swaps the drive for a warning sign, so it differs from low by shape, not only colour.
     private func label(_ text: String) -> some View {
         HStack(spacing: 4) {
-            Image(systemName: monitor.isCritical ? "exclamationmark.triangle.fill" : "internaldrive")
+            Image(systemName: local.isCritical ? "exclamationmark.triangle.fill" : "internaldrive")
             Text(text)
         }
         .font(Font(NSFont.menuBarFont(ofSize: 0)))

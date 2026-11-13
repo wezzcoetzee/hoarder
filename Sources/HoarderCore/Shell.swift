@@ -13,12 +13,15 @@ enum Shell {
     struct Output {
         let status: Int32
         let stdout: String
+        /// Empty when `includeErrors` sent it into `stdout`.
+        var stderr = ""
         var ok: Bool { status == 0 }
     }
 
     /// `includeErrors` sends stderr into `stdout`, for commands whose failure message is shown to the user.
-    /// A command still running after `timeout` is terminated, so a wedged daemon cannot stall a scan forever.
-    static func run(_ tool: String, _ arguments: [String], includeErrors: Bool = false,
+    /// `input` is fed to the command's stdin. A command still running after `timeout` is terminated, so a
+    /// wedged daemon or an unreachable host cannot stall a scan forever.
+    static func run(_ tool: String, _ arguments: [String], includeErrors: Bool = false, input: URL? = nil,
                     timeout: TimeInterval = 300) async -> Output {
         await withCheckedContinuation { continuation in
             DispatchQueue.global().async {
@@ -28,9 +31,14 @@ enum Shell {
                 var environment = ProcessInfo.processInfo.environment
                 environment["PATH"] = path
                 process.environment = environment
-                let pipe = Pipe()
+                let pipe = Pipe(), errors = Pipe()
                 process.standardOutput = pipe
-                process.standardError = includeErrors ? pipe : FileHandle.nullDevice
+                process.standardError = includeErrors ? pipe : errors
+                if let input, let handle = try? FileHandle(forReadingFrom: input) {
+                    process.standardInput = handle
+                } else {
+                    process.standardInput = FileHandle.nullDevice
+                }
                 do {
                     try process.run()
                 } catch {
@@ -40,11 +48,20 @@ enum Shell {
                 DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
                     if process.isRunning { process.terminate() }
                 }
-                // Drain before waiting, or a full pipe buffer deadlocks the child.
+                // Drain both pipes before waiting, or a full pipe buffer deadlocks the child.
+                nonisolated(unsafe) var errorData = Data()
+                let drained = DispatchGroup()
+                if !includeErrors {
+                    DispatchQueue.global().async(group: drained) {
+                        errorData = errors.fileHandleForReading.readDataToEndOfFile()
+                    }
+                }
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                drained.wait()
                 process.waitUntilExit()
                 continuation.resume(returning: Output(status: process.terminationStatus,
-                                                      stdout: String(decoding: data, as: UTF8.self)))
+                                                      stdout: String(decoding: data, as: UTF8.self),
+                                                      stderr: String(decoding: errorData, as: UTF8.self)))
             }
         }
     }
@@ -52,10 +69,15 @@ enum Shell {
     /// Walking a tree is bound by per-file syscalls, so trees are walked in parallel, a few at a time.
     private static let parallelWalks = 8
 
-    /// Allocated size of each path. `excluding` skips entries with that name at any depth (du -I).
-    /// du exits non-zero when any file is unreadable but still prints the total, so the status is ignored.
+    /// Allocated size of each path. `excluding` skips entries with that name at any depth (BSD du -I,
+    /// GNU du --exclude). du exits non-zero when any file is unreadable but still prints the total, so the
+    /// status is ignored.
     static func sizes(of paths: [String], excluding: String? = nil) async -> [String: Int64] {
+        #if os(Linux)
+        let arguments = ["-sk"] + (excluding.map { ["--exclude=\($0)"] } ?? [])
+        #else
         let arguments = ["-sk"] + (excluding.map { ["-I", $0] } ?? [])
+        #endif
         return await withTaskGroup(of: (String, Int64?).self) { group in
             var pending = paths.makeIterator()
             func startNext() {

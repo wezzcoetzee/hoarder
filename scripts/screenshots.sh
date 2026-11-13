@@ -21,7 +21,7 @@ for state in scripts/screenshots/states/*.json; do
   if [ "$name" = overview ]; then
     mv "$out/$name-menubar.png" "$out/menubar.png"
   else
-    rm "$out/$name-menubar.png"
+    rm -f "$out/$name-menubar.png"   # settings shots have no menu bar label
   fi
 done
 ls "$out"
