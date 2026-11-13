@@ -24,6 +24,7 @@ swift run hoarder --commands   # include each cleanup command
 swift run hoarder --json       # machine-readable report
 ./scripts/bundle.sh            # build dist/Hoarder.app
 ./scripts/bundle.sh --install  # and copy it to ~/Applications
+swift scripts/make-icon.swift  # regenerate Support/AppIcon.icns after editing AppIcon.svg
 ```
 
 Notifications and Open at login only work from the bundled app. To check the popover without the menu bar, render it from a saved report:

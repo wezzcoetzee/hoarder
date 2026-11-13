@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hoarder Icons</title>
+<style>
+  :root { --bg: #000; --fg: #fff; --dim: #8c919b; --line: #262626; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; padding: 28px 16px 40px; }
+  h1 { font-size: 17px; font-weight: 600; margin: 0 0 4px; }
+  .sub { color: var(--dim); margin: 0 0 22px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 28px 24px; }
+  .opt { border-top: 1px solid var(--line); padding-top: 12px; }
+  .name { font-weight: 600; margin-bottom: 10px; }
+  .name span { color: var(--dim); font-weight: 400; }
+  .hero { width: 200px; height: 200px; display: block; margin: 0 0 12px -14px; }
+  .sizes { display: flex; align-items: flex-end; gap: 14px; margin-bottom: 10px; }
+  .sizes svg { display: block; }
+  .why { color: var(--dim); margin: 0; }
+  .context { margin-top: 34px; border-top: 1px solid var(--line); padding-top: 12px; }
+  .note { display: flex; gap: 10px; align-items: center; background: #1c1c1e; border-radius: 14px; padding: 10px 12px; max-width: 360px; margin-top: 10px; }
+  .note b { display: block; font-weight: 600; }
+  .note p { margin: 0; color: #c7c9ce; font-size: 12px; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2b2e34"/><stop offset="1" stop-color="#0a0b0d"/>
+    </linearGradient>
+    <linearGradient id="fill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f6c766"/><stop offset="1" stop-color="#c98f2a"/>
+    </linearGradient>
+    <pattern id="hatch" width="44" height="44" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="44" height="44" fill="#f2b84a"/><rect width="10" height="44" fill="#c98f2a"/>
+    </pattern>
+    <clipPath id="jar"><rect x="286" y="254" width="452" height="532" rx="56"/></clipPath>
+
+    <symbol id="base" viewBox="0 0 1024 1024">
+      <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#bg)"/>
+      <rect x="102" y="102" width="820" height="820" rx="184" fill="none" stroke="#fff" stroke-opacity=".09" stroke-width="4"/>
+    </symbol>
+
+    <!-- A: acorn -->
+    <symbol id="a" viewBox="0 0 1024 1024">
+      <use href="#base"/>
+      <path d="M338 470 H686 C686 626 612 740 512 792 C412 740 338 626 338 470 Z" fill="#ece6d9"/>
+      <path d="M512 792 C430 750 372 660 360 520 H420 C428 640 470 724 512 760 Z" fill="#fff" opacity=".35"/>
+      <rect x="494" y="236" width="36" height="86" rx="14" fill="#b07e2a"/>
+      <path d="M300 452 C300 340 396 300 512 300 C628 300 724 340 724 452 Z" fill="url(#hatch)"/>
+      <rect x="292" y="430" width="440" height="56" rx="28" fill="#e0a43c"/>
+    </symbol>
+
+    <!-- B: ledger stack -->
+    <symbol id="b" viewBox="0 0 1024 1024">
+      <use href="#base"/>
+      <polygon points="512,540 732,650 512,760 292,650" fill="#5c616f"/>
+      <polygon points="292,650 512,760 512,830 292,720" fill="#474b56"/>
+      <polygon points="512,760 732,650 732,720 512,830" fill="#383b44"/>
+      <polygon points="512,420 732,530 512,640 292,530" fill="#f2b84a"/>
+      <polygon points="292,530 512,640 512,710 292,600" fill="#d19a33"/>
+      <polygon points="512,640 732,530 732,600 512,710" fill="#b07e2a"/>
+      <polygon points="512,250 732,360 512,470 292,360" fill="#5ee08a"/>
+      <polygon points="292,360 512,470 512,540 292,430" fill="#3fb86a"/>
+      <polygon points="512,470 732,360 732,430 512,540" fill="#2e9a55"/>
+    </symbol>
+
+    <!-- C: gauge -->
+    <symbol id="c" viewBox="0 0 1024 1024">
+      <use href="#base"/>
+      <circle cx="512" cy="512" r="270" fill="none" stroke="#33363d" stroke-width="88"/>
+      <circle cx="512" cy="512" r="270" fill="none" stroke="#f2b84a" stroke-width="88"
+              stroke-dasharray="1360 2000" transform="rotate(-90 512 512)"/>
+      <circle cx="512" cy="512" r="270" fill="none" stroke="#5ee08a" stroke-width="88"
+              stroke-dasharray="0 1380 150 2000" transform="rotate(-90 512 512)"/>
+      <rect x="402" y="462" width="220" height="100" rx="26" fill="none" stroke="#fff" stroke-width="20"/>
+      <circle cx="578" cy="512" r="14" fill="#5ee08a"/>
+    </symbol>
+
+    <!-- D: fill line -->
+    <symbol id="d" viewBox="0 0 1024 1024">
+      <use href="#base"/>
+      <rect x="286" y="254" width="452" height="532" rx="56" fill="#0d0e10"/>
+      <g clip-path="url(#jar)">
+        <rect x="286" y="372" width="452" height="420" fill="url(#fill)"/>
+        <rect x="286" y="372" width="452" height="22" fill="#fff" opacity=".25"/>
+      </g>
+      <line x1="236" y1="452" x2="788" y2="452" stroke="#fff" stroke-width="18" stroke-dasharray="44 30"/>
+      <rect x="272" y="240" width="480" height="560" rx="70" fill="none" stroke="#eceef1" stroke-width="28"/>
+    </symbol>
+  </defs>
+</svg>
+
+<main>
+  <h1>Hoarder app icon</h1>
+  <p class="sub">Four directions, shown large and at 128, 64, 32 and 16 px. Pick one, or mix them.</p>
+
+  <div class="grid">
+    <section class="opt">
+      <div class="name">A <span>Acorn</span></div>
+      <svg class="hero" viewBox="0 0 1024 1024"><use href="#a"/></svg>
+      <div class="sizes">
+        <svg width="128" height="128" viewBox="0 0 1024 1024"><use href="#a"/></svg>
+        <svg width="64" height="64" viewBox="0 0 1024 1024"><use href="#a"/></svg>
+        <svg width="32" height="32" viewBox="0 0 1024 1024"><use href="#a"/></svg>
+        <svg width="16" height="16" viewBox="0 0 1024 1024"><use href="#a"/></svg>
+      </div>
+      <p class="why">The thing a hoarder stashes. Friendliest of the four, and the only one with a personality.</p>
+    </section>
+
+    <section class="opt">
+      <div class="name">B <span>Ledger stack</span></div>
+      <svg class="hero" viewBox="0 0 1024 1024"><use href="#b"/></svg>
+      <div class="sizes">
+        <svg width="128" height="128" viewBox="0 0 1024 1024"><use href="#b"/></svg>
+        <svg width="64" height="64" viewBox="0 0 1024 1024"><use href="#b"/></svg>
+        <svg width="32" height="32" viewBox="0 0 1024 1024"><use href="#b"/></svg>
+        <svg width="16" height="16" viewBox="0 0 1024 1024"><use href="#b"/></svg>
+      </div>
+      <p class="why">A pile of layers in the app's own colours: green safe to clean, amber to review, grey in use.</p>
+    </section>
+
+    <section class="opt">
+      <div class="name">C <span>Gauge</span></div>
+      <svg class="hero" viewBox="0 0 1024 1024"><use href="#c"/></svg>
+      <div class="sizes">
+        <svg width="128" height="128" viewBox="0 0 1024 1024"><use href="#c"/></svg>
+        <svg width="64" height="64" viewBox="0 0 1024 1024"><use href="#c"/></svg>
+        <svg width="32" height="32" viewBox="0 0 1024 1024"><use href="#c"/></svg>
+        <svg width="16" height="16" viewBox="0 0 1024 1024"><use href="#c"/></svg>
+      </div>
+      <p class="why">A disk ring that is mostly used, with a green slice you could get back. Reads clearly at 16 px.</p>
+    </section>
+
+    <section class="opt">
+      <div class="name">D <span>Fill line</span></div>
+      <svg class="hero" viewBox="0 0 1024 1024"><use href="#d"/></svg>
+      <div class="sizes">
+        <svg width="128" height="128" viewBox="0 0 1024 1024"><use href="#d"/></svg>
+        <svg width="64" height="64" viewBox="0 0 1024 1024"><use href="#d"/></svg>
+        <svg width="32" height="32" viewBox="0 0 1024 1024"><use href="#d"/></svg>
+        <svg width="16" height="16" viewBox="0 0 1024 1024"><use href="#d"/></svg>
+      </div>
+      <p class="why">A container filled past a dashed line: your 40 GB limit, the same idea as the popover heading.</p>
+    </section>
+  </div>
+
+  <section class="context">
+    <div class="name">Where it shows <span>notifications, Finder, Login Items</span></div>
+    <div class="note">
+      <svg width="38" height="38" viewBox="0 0 1024 1024"><use href="#b"/></svg>
+      <div><b>22 GB free, under your 40 GB limit</b><p>52.37 GB is safe to clean. Docker build cache is 18.4 GB.</p></div>
+    </div>
+  </section>
+</main>
+</body>
+</html>

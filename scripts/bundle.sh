@@ -7,9 +7,10 @@ cd "$(dirname "$0")/.."
 swift build -c release --product HoarderApp
 app=dist/Hoarder.app
 rm -rf "$app"
-mkdir -p "$app/Contents/MacOS"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$(swift build -c release --show-bin-path)/HoarderApp" "$app/Contents/MacOS/HoarderApp"
 cp Support/Info.plist "$app/Contents/Info.plist"
+cp Support/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
 codesign --force --sign - "$app"
 
 if [ "${1:-}" = --install ]; then

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Ledger stack: green safe to clean, amber to review, grey in use. On Apple's 824pt icon grid. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2b2e34"/>
+      <stop offset="1" stop-color="#0a0b0d"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#bg)"/>
+  <rect x="102" y="102" width="820" height="820" rx="184" fill="none" stroke="#ffffff" stroke-opacity="0.09" stroke-width="4"/>
+  <polygon points="512,540 732,650 512,760 292,650" fill="#5c616f" stroke="#5c616f" stroke-width="2" stroke-linejoin="round"/>
+  <polygon points="292,650 512,760 512,830 292,720" fill="#474b56" stroke="#474b56" stroke-width="2" stroke-linejoin="round"/>
+  <polygon points="512,760 732,650 732,720 512,830" fill="#383b44" stroke="#383b44" stroke-width="2" stroke-linejoin="round"/>
+  <polygon points="512,420 732,530 512,640 292,530" fill="#f2b84a" stroke="#f2b84a" stroke-width="2" stroke-linejoin="round"/>
+  <polygon points="292,530 512,640 512,710 292,600" fill="#d19a33" stroke="#d19a33" stroke-width="2" stroke-linejoin="round"/>
+  <polygon points="512,640 732,530 732,600 512,710" fill="#b07e2a" stroke="#b07e2a" stroke-width="2" stroke-linejoin="round"/>
+  <polygon points="512,250 732,360 512,470 292,360" fill="#5ee08a" stroke="#5ee08a" stroke-width="2" stroke-linejoin="round"/>
+  <polygon points="292,360 512,470 512,540 292,430" fill="#3fb86a" stroke="#3fb86a" stroke-width="2" stroke-linejoin="round"/>
+  <polygon points="512,470 732,360 732,430 512,540" fill="#2e9a55" stroke="#2e9a55" stroke-width="2" stroke-linejoin="round"/>
+</svg>
