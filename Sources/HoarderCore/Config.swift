@@ -33,6 +33,14 @@ public struct Config: Codable, Sendable {
         return try JSONDecoder().decode(Config.self, from: data)
     }
 
+    /// Keys in a config file that Config does not know, such as a misspelling, which decoding ignores.
+    public static func unknownKeys(in data: Data) -> [String] {
+        guard let file = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let known = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(Config())) as? [String: Any]
+        else { return [] }
+        return file.keys.filter { known[$0] == nil }.sorted()
+    }
+
     /// Writes the defaults so there is a file to edit. Leaves an existing file alone.
     public static func writeDefaultsIfMissing() throws {
         guard !exists(fileURL.path) else { return }

@@ -8,6 +8,8 @@ enum Theme {
     static let green = Color(red: 0.37, green: 0.88, blue: 0.54)
     static let red = Color(red: 1.0, green: 0.42, blue: 0.40)
     static let keep = Color(red: 0.36, green: 0.38, blue: 0.44)
+    static let keptTitle = Color(white: 0.72)
+    static let command = Color(white: 0.8)
     static let line = Color(white: 0.15)
     static let hover = Color(white: 0.1)
     /// Darker tints for the menu bar label when the menu bar is light.
@@ -87,6 +89,8 @@ struct PopoverView: View {
                     .onChange(of: confirming, initial: true) { _, id in
                         if let id { proxy.scrollTo(id) }
                     }
+                    // A new scan can change or reclassify the row a panel was opened on.
+                    .onChange(of: report.scannedAt) { confirming = nil }
                 }
                 Theme.line.frame(height: 1)
             }
@@ -136,6 +140,11 @@ struct PopoverView: View {
             if monitor.isLow, let snoozedUntil = monitor.alertState.snoozedUntil, monitor.alertState.isSnoozed() {
                 let day = Calendar.current.isDateInToday(snoozedUntil) ? "today" : "tomorrow"
                 Text("Alert snoozed until \(snoozedUntil.formatted(date: .omitted, time: .shortened)) \(day)")
+                    .foregroundStyle(Theme.dim)
+            }
+            if monitor.isLow && monitor.notificationsOff {
+                Button("Notifications are off for Hoarder. Open Settings") { NSWorkspace.shared.open(Notifier.settingsURL) }
+                    .buttonStyle(.plain)
                     .foregroundStyle(Theme.dim)
             }
             ForEach([monitor.configError, monitor.loginError].compactMap { $0 }, id: \.self) {
@@ -245,13 +254,13 @@ struct PopoverView: View {
             if showing { showingKept.remove(category) } else { showingKept.insert(category) }
         } label: {
             HStack(spacing: 8) {
-                Dot(verdict: .keep)
-                Text(showing ? "\(count) in use, hide" : "\(count) in use").lineLimit(1)
+                Text(showing ? "Hide \(count) in use" : "\(count) in use").lineLimit(1)
                 Spacer()
                 Text(formatBytes(report.total(.keep, in: category))).monospacedDigit()
             }
             .foregroundStyle(Theme.dim)
-            .padding(.horizontal, 12)
+            .padding(.leading, FindingRow.textInset)
+            .padding(.trailing, 12)
             .padding(.vertical, 4)
             .contentShape(Rectangle())
         }
@@ -269,14 +278,22 @@ struct PopoverView: View {
             }
             .padding(.leading, 6)
             Spacer(minLength: 8)
-            if monitor.isLow && !monitor.alertState.isSnoozed() {
+            // Only once an alert was sent: before that there is nothing to snooze.
+            if monitor.isLow && monitor.alertState.alerted && !monitor.alertState.isSnoozed() {
                 Button("Snooze 1 day") { monitor.snooze() }
+                    .accessibilityLabel("Snooze low-disk alert for 1 day")
             }
-            // Hidden, not removed, while scanning, so nothing slides under the cursor.
-            Button("Rescan") { Task { await monitor.scan() } }
-                .opacity(monitor.scanning ? 0 : 1)
-                .disabled(monitor.scanning)
-                .accessibilityHidden(monitor.scanning)
+            // "Scanning" takes Rescan's slot, so nothing slides under the cursor.
+            ZStack {
+                Button("Rescan") { Task { await monitor.scan() } }
+                    .opacity(monitor.scanning ? 0 : 1)
+                    .disabled(monitor.scanning)
+                    .accessibilityHidden(monitor.scanning)
+                Text("Scanning")
+                    .foregroundStyle(Theme.dim)
+                    .opacity(monitor.scanning ? 1 : 0)
+                    .accessibilityHidden(!monitor.scanning)
+            }
             Menu {
                 Toggle("Open at login", isOn: Binding(get: { monitor.opensAtLogin }, set: { monitor.setOpensAtLogin($0) }))
                 Button("Edit config") { monitor.editConfig() }
@@ -300,7 +317,7 @@ struct PopoverView: View {
     }
 
     private func scannedLabel(now: Date) -> String {
-        guard let report = monitor.report, !monitor.scanning else { return "Scanning" }
+        guard let report = monitor.report else { return "" }
         let minutes = Int(now.timeIntervalSince(report.scannedAt) / 60)
         switch minutes {
         case ..<1: return "Scanned just now"
@@ -328,12 +345,14 @@ struct Dot: View {
     }
 }
 
-/// One finding. Clicking it (or hovering, which shows the action) opens a confirmation with the reason
-/// and the exact command before anything runs. Kept rows, and rows with nothing to run, reveal their
-/// files instead, so a kept row never offers cleaning.
+/// One finding. Clicking it opens a panel with the full reason, and for a cleanable row the exact
+/// command and Run; hover shows "Clean" on rows that can be cleaned. Kept rows never offer cleaning.
 struct FindingRow: View {
     /// Where row text starts: horizontal padding, dot, spacing. Lines below the title align to it.
     static let textInset: CGFloat = 12 + 7 + 8
+    /// Below this much room the reason moves under the title instead of showing as a stub.
+    private static let minimumReasonWidth: CGFloat = 110
+    private static let commandCap: CGFloat = 120
 
     let finding: Finding
     let hovered: Bool
@@ -344,24 +363,26 @@ struct FindingRow: View {
     let onRun: () -> Void
     let onCancel: () -> Void
 
+    @State private var commandHeight: CGFloat = 0
+    @AccessibilityFocusState private var panelFocused: Bool
+
     private var cleanable: Bool { finding.verdict != .keep && finding.cleanup != nil }
     private var kept: Bool { finding.verdict == .keep }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Button(action: cleanable ? onActivate : reveal) { line }
+            Button(action: onActivate) { line }
                 .buttonStyle(.plain)
                 .allowsHitTesting(!cleaning)
                 .help("\(finding.title)\n\(finding.detail)")
                 .accessibilityLabel("\(finding.title), \(finding.verdict.spoken), \(formatBytes(finding.bytes))")
                 .accessibilityValue(cleaning ? "cleaning" : failure.map { "not cleaned, \($0)" } ?? "")
-                .accessibilityHint(finding.detail + (cleanable ? ". Shows the cleanup command" : ". Shows in Finder"))
+                .accessibilityHint(cleanable ? "Shows the reason and cleanup command" : "Shows the reason")
 
             if let failure {
                 Text("Not cleaned: \(failure)")
                     .font(.system(size: 12))
                     .foregroundStyle(Theme.red)
-                    .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
                     .help(failure)
@@ -369,29 +390,32 @@ struct FindingRow: View {
                     .padding(.trailing, 12)
                     .padding(.bottom, 4)
             }
-            if confirming { confirmation }
+            if confirming { panel }
         }
         .background(hovered || confirming ? Theme.hover : .clear)
     }
 
     private var line: some View {
-        HStack(spacing: 8) {
-            Dot(verdict: finding.verdict)
-            HStack(spacing: 6) {
-                // The title gives way in the middle, so a branch keeps its distinctive end.
-                Text(finding.title)
-                    .foregroundStyle(kept ? Theme.dim : .white)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .layoutPriority(1)
-                if !confirming {
-                    Text(finding.detail)
-                        .font(.system(size: 12))
-                        .foregroundStyle(Theme.dim)
-                        .lineLimit(1)
+        HStack(alignment: .top, spacing: 8) {
+            Dot(verdict: finding.verdict).padding(.top, 5)
+            Group {
+                if confirming {
+                    title.lineLimit(2)
+                } else {
+                    // The reason sits beside the title when enough of it fits, otherwise under it.
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 6) {
+                            title.fixedSize()
+                            reason.frame(idealWidth: Self.minimumReasonWidth, alignment: .leading)
+                        }
+                        VStack(alignment: .leading, spacing: 1) {
+                            title.lineLimit(1)
+                            reason
+                        }
+                    }
                 }
             }
-            Spacer(minLength: 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
             trailing
         }
         .padding(.horizontal, 12)
@@ -399,48 +423,73 @@ struct FindingRow: View {
         .contentShape(Rectangle())
     }
 
-    /// The size, or on hover the action. "Clean" is laid out under the size so a cleanable row never
-    /// reflows on hover; "Show in Finder" is too wide to reserve on every row, so it replaces the size.
-    @ViewBuilder
+    /// The title gives way in the middle, so a branch keeps its distinctive end.
+    private var title: some View {
+        Text(finding.title)
+            .foregroundStyle(kept ? Theme.keptTitle : .white)
+            .truncationMode(.middle)
+    }
+
+    private var reason: some View {
+        Text(finding.detail)
+            .font(.system(size: 12))
+            .foregroundStyle(Theme.dim)
+            .lineLimit(1)
+    }
+
+    /// The size, or "Clean" on hover over a cleanable row, laid out under the size so the row never
+    /// reflows.
     private var trailing: some View {
-        let showAction = hovered && !confirming && !cleaning
-        let size = Text(cleaning ? "Cleaning" : formatBytes(finding.bytes))
-            .monospacedDigit()
-            .foregroundStyle(cleaning || kept || finding.bytes == 0 ? Theme.dim : .white)
-        Group {
+        let showAction = cleanable && hovered && !confirming && !cleaning
+        return ZStack(alignment: .trailing) {
+            Text(cleaning ? "Cleaning" : formatBytes(finding.bytes))
+                .monospacedDigit()
+                .foregroundStyle(cleaning || kept || finding.bytes == 0 ? Theme.dim : .white)
+                .opacity(showAction ? 0 : 1)
             if cleanable {
-                ZStack(alignment: .trailing) {
-                    size.opacity(showAction ? 0 : 1)
-                    Text("Clean").foregroundStyle(Theme.color(finding.verdict)).opacity(showAction ? 1 : 0)
-                }
-            } else if showAction {
-                Text("Show in Finder")
-            } else {
-                size
+                Text("Clean").foregroundStyle(Theme.color(finding.verdict)).opacity(showAction ? 1 : 0)
             }
         }
         .accessibilityHidden(true)
     }
 
-    private var confirmation: some View {
+    private var panel: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(finding.detail)
                 .font(.system(size: 12))
                 .fixedSize(horizontal: false, vertical: true)
-            if let command = finding.cleanup {
-                Text(command)
-                    .font(.system(size: 11, design: .monospaced))
+            if cleanable, finding.category == .worktree, finding.cleanup?.contains("worktree remove") == true {
+                Text("Removes the folder; the branch and its commits stay")
+                    .font(.system(size: 12))
                     .foregroundStyle(Theme.dim)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
+            }
+            if cleanable, let command = finding.cleanup {
+                // A many-folder command scrolls in a capped box, so Run stays in view.
+                ScrollView {
+                    Text(command)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(Theme.command)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { commandHeight = $0 }
+                }
+                .frame(height: min(commandHeight, Self.commandCap))
             }
             HStack(spacing: 0) {
-                Button("Run ↩", action: onRun)
-                    .foregroundStyle(Theme.color(finding.verdict))
-                    .keyboardShortcut(.defaultAction)
-                    .accessibilityLabel("Run cleanup for \(finding.title)")
-                Button("Cancel", action: onCancel)
-                    .keyboardShortcut(.cancelAction)
+                if cleanable {
+                    Button("Run ↩", action: onRun)
+                        .foregroundStyle(Theme.color(finding.verdict))
+                        .keyboardShortcut(.defaultAction)
+                        .accessibilityLabel("Run cleanup for \(finding.title)")
+                        .accessibilityFocused($panelFocused)
+                    Button("Cancel", action: onCancel)
+                        .keyboardShortcut(.cancelAction)
+                } else {
+                    Button("Close", action: onCancel)
+                        .keyboardShortcut(.cancelAction)
+                        .accessibilityFocused($panelFocused)
+                }
                 if !finding.paths.isEmpty { Button("Show in Finder", action: reveal) }
             }
             .buttonStyle(TextButtonStyle())
@@ -450,6 +499,7 @@ struct FindingRow: View {
         .padding(.leading, Self.textInset)
         .padding(.trailing, 12)
         .padding(.bottom, 8)
+        .onAppear { panelFocused = true }
     }
 
     private func reveal() {

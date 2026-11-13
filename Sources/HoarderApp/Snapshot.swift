@@ -21,6 +21,7 @@ enum Snapshot {
         /// Finding id to the error shown under that row.
         var failures: [Finding.ID: String]?
         var lastCleaned: String?
+        var notificationsOff: Bool?
         /// Shows the whole list instead of capping it at the popover's scroll height.
         var full: Bool?
     }
@@ -35,11 +36,17 @@ enum Snapshot {
         var config = Config()
         config.alertBelowGB = state.alertBelowGB ?? config.alertBelowGB
         var alertState = AlertState()
-        if state.snoozed == true { alertState.snooze(until: .now.addingTimeInterval(86_400)) }
-        let monitor = Monitor(preview: report,
-                              disk: DiskSpace(free: Int64((state.freeGB ?? 22) * 1e9), total: 994_000_000_000),
+        let disk = DiskSpace(free: Int64((state.freeGB ?? 22) * 1e9), total: 994_000_000_000)
+        // As in the app: the alert is sent once a report exists, unless snoozed.
+        if state.snoozed == true {
+            alertState.snooze(until: .now.addingTimeInterval(86_400))
+        } else if report != nil {
+            _ = alertState.evaluate(free: disk.free, limit: config.alertLimitBytes)
+        }
+        let monitor = Monitor(preview: report, disk: disk,
                               config: config, alertState: alertState, scanning: state.scanning ?? false,
-                              cleaning: Set([state.cleaning].compactMap { $0 }), failures: state.failures ?? [:], lastCleaned: state.lastCleaned)
+                              cleaning: Set([state.cleaning].compactMap { $0 }), failures: state.failures ?? [:], lastCleaned: state.lastCleaned,
+                              notificationsOff: state.notificationsOff ?? false)
 
         _ = NSApplication.shared
         let popover = PopoverView(monitor: monitor, hovered: state.hovered, confirming: state.confirming,

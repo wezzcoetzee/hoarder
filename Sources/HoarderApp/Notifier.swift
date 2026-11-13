@@ -15,12 +15,20 @@ enum Notifier {
         Task { _ = try? await center.requestAuthorization(options: [.alert, .sound]) }
     }
 
+    /// Whether the user turned Hoarder's notifications off in System Settings.
+    static func isDenied() async -> Bool {
+        guard available else { return false }
+        return await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .denied
+    }
+
+    static let settingsURL = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=dev.hoarder.app")!
+
     static func lowDisk(free: Int64, limitGB: Int, report: Report?) {
         guard available else { return }
         let title = freeSpace(free, limitGB: limitGB, low: true)
         var body = "Open Hoarder to see what can go."
         if let report, let biggest = report.findings.first(where: { $0.verdict == .reclaimable }) {
-            body = "\(formatBytes(report.total(.reclaimable))) is safe to clean. \(biggest.fullName) is \(formatBytes(biggest.bytes))."
+            body = "\(formatBytes(report.total(.reclaimable))) is safe to clean. Biggest: \(biggest.fullName), \(formatBytes(biggest.bytes))."
         }
         Task {
             let content = UNMutableNotificationContent()
@@ -34,11 +42,11 @@ enum Notifier {
 }
 
 extension Finding {
-    /// The title with its category, since "Build cache" alone does not say whose.
+    /// The title with its category, since "Build cache" alone does not say whose. Reads mid-sentence.
     var fullName: String {
         switch category {
         case .docker: "Docker " + title.prefix(1).lowercased() + title.dropFirst()
-        case .worktree: "Worktree " + title
+        case .worktree: "worktree " + title
         case .nodeModules: "node_modules in " + title
         case .cache: title
         }

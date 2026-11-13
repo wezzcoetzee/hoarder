@@ -46,12 +46,9 @@ struct MenuBarLabel: View {
         let text = monitor.disk.map { gigabytes($0.free, unit: "G") } ?? "–"
         Group {
             if let color = warning {
-                Image(nsImage: tinted(text, color))
+                Image(nsImage: tinted(label(text), color))
             } else {
-                HStack(spacing: 4) {
-                    Image(systemName: "internaldrive")
-                    Text(text)
-                }
+                label(text)
             }
         }
         .accessibilityElement(children: .ignore)
@@ -71,14 +68,17 @@ struct MenuBarLabel: View {
         return "Hoarder, " + freeSpace(disk.free, limitGB: monitor.config.alertBelowGB, low: monitor.isLow)
     }
 
-    private func tinted(_ text: String, _ color: Color) -> NSImage {
-        let label = HStack(spacing: 4) {
-            Image(systemName: "internaldrive")
+    /// Critical swaps the drive for a warning sign, so it differs from low by shape, not only colour.
+    private func label(_ text: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: monitor.isCritical ? "exclamationmark.triangle.fill" : "internaldrive")
             Text(text)
         }
-        .font(.system(size: 13))
-        .foregroundStyle(color)
-        let renderer = ImageRenderer(content: label)
+        .font(Font(NSFont.menuBarFont(ofSize: 0)))
+    }
+
+    private func tinted(_ label: some View, _ color: Color) -> NSImage {
+        let renderer = ImageRenderer(content: label.foregroundStyle(color))
         renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
         let image = renderer.nsImage ?? NSImage()
         image.isTemplate = false

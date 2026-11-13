@@ -67,3 +67,9 @@ func classifiesWorktrees(present: Bool, locked: Bool, dirty: Bool, merged: Bool,
     #expect(state.evaluate(free: 45 * gb, limit: limit, now: now) == false)   // recovered: re-arms, ends snooze
     #expect(state.evaluate(free: 30 * gb, limit: limit, now: now) == true)
 }
+
+@Test func namesMisspelledConfigKeys() {
+    let file = Data(#"{"alertBelowGB": 30, "alertBelowGb": 20, "projectRoot": []}"#.utf8)
+    #expect(Config.unknownKeys(in: file) == ["alertBelowGb", "projectRoot"])
+    #expect(Config.unknownKeys(in: Data("not json".utf8)).isEmpty)
+}

@@ -23,6 +23,8 @@ final class Monitor {
     private(set) var failures: [Finding.ID: String] = [:]
     /// "Cleaned X, 2.1 GB" after a clean succeeds, until the popover closes.
     private(set) var lastCleaned: String?
+    /// The user turned Hoarder's notifications off, so low-disk alerts cannot arrive.
+    private(set) var notificationsOff = false
     /// Cleaned while a scan was running, so that scan's result does not bring the rows back.
     private var cleanedDuringScan: Set<Finding.ID> = []
 
@@ -38,7 +40,7 @@ final class Monitor {
 
     /// A still monitor for `--snapshot`: shows the given state, never scans, alerts or cleans.
     init(preview report: Report?, disk: DiskSpace, config: Config, alertState: AlertState, scanning: Bool,
-         cleaning: Set<Finding.ID>, failures: [Finding.ID: String], lastCleaned: String?) {
+         cleaning: Set<Finding.ID>, failures: [Finding.ID: String], lastCleaned: String?, notificationsOff: Bool) {
         self.report = report
         self.disk = disk
         self.config = config
@@ -47,6 +49,7 @@ final class Monitor {
         self.cleaning = cleaning
         self.failures = failures
         self.lastCleaned = lastCleaned
+        self.notificationsOff = notificationsOff
     }
 
     var isLow: Bool { disk.map { $0.free < config.alertLimitBytes } ?? false }
@@ -63,13 +66,15 @@ final class Monitor {
             report.findings.first { $0.id == id }.map(report.removing) ?? report
         }
         report = current
-        let present = Set(current.findings.map(\.id))
-        failures = failures.filter { present.contains($0.key) }
+        // A failure stays while its row can still be cleaned; a row that is now kept drops it.
+        let cleanable = Set(current.findings.filter { $0.verdict != .keep }.map(\.id))
+        failures = failures.filter { cleanable.contains($0.key) }
         scanning = false
         refreshDisk()
     }
 
     func clean(_ finding: Finding) async {
+        guard !cleaning.contains(finding.id) else { return }
         cleaning.insert(finding.id)
         failures[finding.id] = nil
         let result = await Hoarder.clean(finding)
@@ -77,12 +82,18 @@ final class Monitor {
         if result.ok {
             report = report?.removing(finding)
             if scanning { cleanedDuringScan.insert(finding.id) }
-            let message = "Cleaned \(finding.fullName), \(formatBytes(finding.bytes))"
+            // Docker frees space inside its VM disk; the Mac gets it back only after the VM trims.
+            let message = finding.category == .docker
+                ? "Cleaned \(finding.fullName): \(formatBytes(finding.bytes)) freed inside Docker's disk"
+                : "Cleaned \(finding.fullName), \(formatBytes(finding.bytes))"
             lastCleaned = message
             AccessibilityNotification.Announcement(message).post()
         } else {
             let lastLine = result.output.split(separator: "\n").last.map(String.init) ?? "exited with an error"
-            failures[finding.id] = String(lastLine.prefix(240))
+            let reason = ["fatal: ", "error: "].reduce(lastLine) { line, prefix in
+                line.hasPrefix(prefix) ? String(line.dropFirst(prefix.count)) : line
+            }
+            failures[finding.id] = String(reason.prefix(240))
             AccessibilityNotification.Announcement("\(finding.fullName) not cleaned").post()
         }
         refreshDisk()
@@ -122,6 +133,7 @@ final class Monitor {
     private func watchDisk() async {
         while !Task.isCancelled {
             refreshDisk()
+            notificationsOff = await Notifier.isDenied()
             try? await Task.sleep(for: .seconds(60))
         }
     }
@@ -149,7 +161,9 @@ final class Monitor {
     private func loadConfig() {
         do {
             config = try Config.load()
-            configError = nil
+            let unknown = (try? Data(contentsOf: Config.fileURL)).map(Config.unknownKeys) ?? []
+            configError = unknown.isEmpty ? nil
+                : "config.json: unknown \(unknown.count == 1 ? "key" : "keys") \(unknown.joined(separator: ", "))"
         } catch {
             configError = "config.json \(Self.describe(error)), using defaults"
         }

@@ -25,7 +25,7 @@ enum DockerScanner {
         "Build Cache": Prune(title: "Build cache", verdict: .reclaimable, command: "docker builder prune -f",
                              why: "rebuilt on next build"),
         "Containers": Prune(title: "Stopped containers", verdict: .reclaimable, command: "docker container prune -f",
-                            why: "not running"),
+                            why: "container files go, images stay"),
         "Images": Prune(title: "Unused images", verdict: .review, command: "docker image prune -a -f",
                         why: "re-pulled on demand"),
         "Local Volumes": Prune(title: "Unused volumes", verdict: .review, command: "docker volume prune -f",
