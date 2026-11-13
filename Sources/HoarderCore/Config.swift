@@ -3,8 +3,7 @@ import Foundation
 /// Read from `~/.config/hoarder/config.json`. Every key is optional; missing keys use the defaults.
 public struct Config: Codable, Sendable {
     /// Searched for git repos, their worktrees, and node_modules.
-    public var projectRoots = ["~/Development", "~/.t3/worktrees", "~/.codex/worktrees",
-                               "~/.cursor/worktrees", "~/codeherder-sessions"]
+    public var projectRoots = ["~/Development", "~/.t3/worktrees", "~/.codex/worktrees", "~/.cursor/worktrees"]
     /// A clean, unmerged worktree whose branch tip is older than this is flagged for review.
     public var staleWorktreeDays = 14
     /// node_modules in a project untouched for this long is reclaimable.

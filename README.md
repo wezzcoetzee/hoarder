@@ -95,7 +95,7 @@ Free space is read every minute (the `df` figure, not Finder's, which counts pur
 {
   "alertBelowGB": 40,
   "idleNodeModulesDays": 30,
-  "projectRoots": ["~/Development", "~/.t3/worktrees", "~/.codex/worktrees", "~/.cursor/worktrees", "~/codeherder-sessions"],
+  "projectRoots": ["~/Development", "~/.t3/worktrees", "~/.codex/worktrees", "~/.cursor/worktrees"],
   "scanEveryMinutes": 60,
   "staleWorktreeDays": 14
 }
