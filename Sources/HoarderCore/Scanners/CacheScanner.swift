@@ -26,7 +26,7 @@ enum CacheScanner {
         Known(title: "Go build cache", path: "~/Library/Caches/go-build", verdict: .reclaimable,
               detail: "rebuilt on next build", cleanup: "go clean -cache"),
         Known(title: "Homebrew downloads", path: "~/Library/Caches/Homebrew", verdict: .reclaimable,
-              detail: "old bottles and downloads", cleanup: "brew cleanup --prune=all"),
+              detail: "old versions, re-downloaded when needed", cleanup: "brew cleanup --prune=all"),
         Known(title: "Xcode DerivedData", path: "~/Library/Developer/Xcode/DerivedData", verdict: .reclaimable,
               detail: "rebuilt on next build", cleanup: "rm -rf ~/Library/Developer/Xcode/DerivedData"),
         Known(title: "Playwright browsers", path: "~/Library/Caches/ms-playwright", verdict: .review,

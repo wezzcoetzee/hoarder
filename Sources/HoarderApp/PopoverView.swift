@@ -7,11 +7,12 @@ enum Theme {
     static let amber = Color(red: 0.95, green: 0.72, blue: 0.29)
     static let green = Color(red: 0.37, green: 0.88, blue: 0.54)
     static let red = Color(red: 1.0, green: 0.42, blue: 0.40)
-    static let keep = Color(red: 0.36, green: 0.38, blue: 0.44)
+    static let keep = Color(red: 0.45, green: 0.47, blue: 0.52)
     static let keptTitle = Color(white: 0.72)
     static let command = Color(white: 0.8)
     static let line = Color(white: 0.15)
-    static let hover = Color(white: 0.1)
+    static let hover = Color(white: 0.07)
+    static let panel = Color(white: 0.12)
     /// Darker tints for the menu bar label when the menu bar is light.
     static let amberOnLight = Color(red: 0.5, green: 0.3, blue: 0.0)
     static let redOnLight = Color(red: 0.62, green: 0.08, blue: 0.06)
@@ -52,6 +53,8 @@ struct PopoverView: View {
     let monitor: Monitor
     @State private var hovered: Finding.ID?
     @State private var confirming: Finding.ID?
+    /// The open row's verdict and command when it was opened, to notice a scan changing them.
+    @State private var confirmedAs: String?
     @State private var expanded: Set<HoarderCore.Category> = []
     @State private var showingKept: Set<HoarderCore.Category> = []
     @State private var listHeight: CGFloat = 0
@@ -87,12 +90,18 @@ struct PopoverView: View {
                     }
                     .frame(height: min(listHeight, listCap))
                     .onChange(of: confirming, initial: true) { _, id in
-                        if let id { proxy.scrollTo(id) }
+                        // On the next turn, once the panel has its height, so Run lands in view.
+                        if let id { DispatchQueue.main.async { proxy.scrollTo(id) } }
                     }
-                    // A new scan can drop or reclassify the row a panel was opened on; close it then.
+                    // And again once the list has grown by the panel, which is when its height is final.
+                    .onChange(of: listHeight) {
+                        if let confirming { proxy.scrollTo(confirming) }
+                    }
+                    // A new scan can drop the row a panel was opened on, or change its verdict or
+                    // command; close the panel then, so Run never acts on what was not shown.
                     .onChange(of: report.scannedAt) {
                         let row = report.findings.first { $0.id == confirming }
-                        if row == nil || row?.verdict == .keep { confirming = nil }
+                        if row.map(Self.signature) != confirmedAs { confirming = nil }
                     }
                 }
                 Theme.line.frame(height: 1)
@@ -128,7 +137,7 @@ struct PopoverView: View {
                 } else {
                     HStack(spacing: 12) {
                         ForEach(totals, id: \.0) { verdict, bytes in
-                            HStack(spacing: 5) {
+                            HStack(spacing: 8) {
                                 Dot(verdict: verdict)
                                 Text("\(Text(formatBytes(bytes)).font(.system(size: 13))) \(Text(verdict.spoken).foregroundStyle(Theme.dim))")
                                     .monospacedDigit()
@@ -174,11 +183,12 @@ struct PopoverView: View {
     // MARK: Sections
 
     /// Sections with the most that is safe to clean come first, so the top section is where to start.
+    /// Docker goes last: its prunes free space inside Docker's disk, not on the Mac right away.
     private func sections(_ report: Report) -> some View {
         let categories = HoarderCore.Category.allCases
             .filter { category in report.findings.contains { $0.category == category } }
             .map { ($0, report.total(.reclaimable, in: $0), report.total(.review, in: $0)) }
-            .sorted { ($0.1, $0.2) > ($1.1, $1.2) }
+            .sorted { ($0.0 == .docker ? 0 : 1, $0.1, $0.2) > ($1.0 == .docker ? 0 : 1, $1.1, $1.2) }
         return VStack(alignment: .leading, spacing: 0) {
             ForEach(categories, id: \.0) { category, safe, review in
                 section(report, category, safe + review)
@@ -243,7 +253,14 @@ struct PopoverView: View {
                    confirming: confirming == finding.id,
                    cleaning: monitor.cleaning.contains(finding.id),
                    failure: monitor.failures[finding.id],
-                   onActivate: { confirming = confirming == finding.id ? nil : finding.id },
+                   onActivate: {
+                       if confirming == finding.id {
+                           confirming = nil
+                       } else {
+                           confirming = finding.id
+                           confirmedAs = Self.signature(finding)
+                       }
+                   },
                    onRun: {
                        confirming = nil
                        Task { await monitor.clean(finding) }
@@ -253,6 +270,10 @@ struct PopoverView: View {
             .onHover { inside in
                 if inside { hovered = finding.id } else if hovered == finding.id { hovered = nil }
             }
+    }
+
+    private static func signature(_ finding: Finding) -> String {
+        "\(finding.verdict.rawValue)|\(finding.cleanup ?? "")"
     }
 
     /// "5 in use" with their total. Clicking lists them, each with why it is kept.
@@ -290,10 +311,12 @@ struct PopoverView: View {
             if monitor.isLow && monitor.alertState.alerted && !monitor.alertState.isSnoozed() && !monitor.notificationsOff {
                 Button("Snooze 1 day") { monitor.snooze() }
                     .accessibilityLabel("Snooze low-disk alert for 1 day")
+                    .accessibilityInputLabels(["Snooze"])
             }
             // "Scanning" takes Rescan's slot, so nothing slides under the cursor.
             ZStack {
                 Button("Rescan") { Task { await monitor.scan() } }
+                    .keyboardShortcut("r")
                     .opacity(monitor.scanning ? 0 : 1)
                     .disabled(monitor.scanning)
                     .accessibilityHidden(monitor.scanning)
@@ -372,7 +395,6 @@ struct FindingRow: View {
     let onRun: () -> Void
     let onCancel: () -> Void
 
-    @State private var commandHeight: CGFloat = 0
     @AccessibilityFocusState private var panelFocused: Bool
 
     private var cleanable: Bool { finding.verdict != .keep && finding.cleanup != nil }
@@ -401,7 +423,7 @@ struct FindingRow: View {
             }
             if confirming { panel }
         }
-        .background(hovered || confirming ? Theme.hover : .clear)
+        .background(confirming ? Theme.panel : hovered ? Theme.hover : .clear)
     }
 
     private var line: some View {
@@ -419,7 +441,7 @@ struct FindingRow: View {
                         }
                         VStack(alignment: .leading, spacing: 1) {
                             title.lineLimit(1)
-                            reason
+                            reason.fixedSize(horizontal: false, vertical: true)
                         }
                     }
                 }
@@ -439,11 +461,11 @@ struct FindingRow: View {
             .truncationMode(.middle)
     }
 
+    /// While cleaning, the reason's place says so, and the size stays put.
     private var reason: some View {
-        Text(finding.detail)
+        Text(cleaning ? "Cleaning" : finding.detail)
             .font(.system(size: 12))
             .foregroundStyle(Theme.dim)
-            .lineLimit(1)
     }
 
     /// The size, or "Clean" on hover over a cleanable row, laid out under the size so the row never
@@ -451,7 +473,7 @@ struct FindingRow: View {
     private var trailing: some View {
         let showAction = cleanable && hovered && !confirming && !cleaning
         return ZStack(alignment: .trailing) {
-            Text(cleaning ? "Cleaning" : formatBytes(finding.bytes))
+            Text(formatBytes(finding.bytes))
                 .monospacedDigit()
                 .foregroundStyle(cleaning || kept || finding.bytes == 0 ? Theme.dim : .white)
                 .opacity(showAction ? 0 : 1)
@@ -479,26 +501,25 @@ struct FindingRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if cleanable, let command = finding.cleanup {
-                // A many-folder command scrolls in a capped box, so Run stays in view.
-                ScrollView {
-                    Text(command)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(Theme.command)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { commandHeight = $0 }
-                }
-                .frame(height: min(commandHeight, Self.commandCap))
+                // A many-folder command scrolls in a capped box, so Run stays in view. A hidden copy
+                // sizes the box in the same layout pass; the scroll view is laid over it.
+                let text = Text(command)
+                    .font(.system(size: 11, design: .monospaced))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                text.hidden()
+                    .frame(maxHeight: Self.commandCap, alignment: .top)
+                    .overlay {
+                        ScrollView { text.foregroundStyle(Theme.command).textSelection(.enabled) }
+                    }
             }
             HStack(spacing: 0) {
-                if cleaning {
-                    Text("Cleaning").foregroundStyle(Theme.dim).padding(.horizontal, 6).padding(.vertical, 5)
-                } else if cleanable {
+                if cleanable && !cleaning {
                     Button("Run ↩", action: onRun)
                         .foregroundStyle(Theme.color(finding.verdict))
                         .keyboardShortcut(.defaultAction)
                         .accessibilityLabel("Run cleanup for \(finding.title)")
+                        .accessibilityInputLabels(["Run", "Run cleanup"])
                         .accessibilityFocused($panelFocused)
                     Button("Cancel", action: onCancel)
                         .keyboardShortcut(.cancelAction)
