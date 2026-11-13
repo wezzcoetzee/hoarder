@@ -20,7 +20,7 @@ enum Notifier {
         let title = "\(gigabytes(free)) free"
         var body = "Under your \(limitGB) GB limit."
         if let report, let biggest = report.findings.first(where: { $0.verdict == .reclaimable }) {
-            body = "\(formatBytes(report.total(.reclaimable))) is safe to clean. \(biggest.title) is \(formatBytes(biggest.bytes))."
+            body = "\(formatBytes(report.total(.reclaimable))) is safe to clean. \(name(of: biggest)) is \(formatBytes(biggest.bytes))."
         }
         Task {
             let content = UNMutableNotificationContent()
@@ -30,6 +30,16 @@ enum Notifier {
             try? await UNUserNotificationCenter.current()
                 .add(UNNotificationRequest(identifier: "low-disk", content: content, trigger: nil))
         }
+    }
+}
+
+/// A row's title with its category, since "Build cache" alone does not say whose.
+private func name(of finding: Finding) -> String {
+    switch finding.category {
+    case .docker: "Docker " + finding.title.prefix(1).lowercased() + finding.title.dropFirst()
+    case .worktree: "Worktree " + finding.title
+    case .nodeModules: "node_modules in " + finding.title
+    case .cache: finding.title
     }
 }
 

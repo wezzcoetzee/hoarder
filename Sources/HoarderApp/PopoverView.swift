@@ -6,9 +6,13 @@ enum Theme {
     static let dim = Color(red: 0.55, green: 0.57, blue: 0.61)
     static let amber = Color(red: 0.95, green: 0.72, blue: 0.29)
     static let green = Color(red: 0.37, green: 0.88, blue: 0.54)
+    static let red = Color(red: 1.0, green: 0.42, blue: 0.40)
     static let keep = Color(red: 0.36, green: 0.38, blue: 0.44)
     static let line = Color(white: 0.15)
     static let hover = Color(white: 0.1)
+    /// Darker tints for the menu bar label when the menu bar is light.
+    static let amberOnLight = Color(red: 0.6, green: 0.38, blue: 0.0)
+    static let redOnLight = Color(red: 0.75, green: 0.13, blue: 0.1)
 
     static func color(_ verdict: Verdict) -> Color {
         switch verdict {
@@ -16,6 +20,28 @@ enum Theme {
         case .review: amber
         case .keep: keep
         }
+    }
+}
+
+extension Verdict {
+    /// How VoiceOver and the header name a verdict.
+    var spoken: String {
+        switch self {
+        case .reclaimable: "safe to clean"
+        case .review: "to review"
+        case .keep: "in use"
+        }
+    }
+}
+
+/// Text buttons with a hit area larger than their glyphs.
+struct TextButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+            .opacity(configuration.isPressed ? 0.6 : 1)
     }
 }
 
@@ -45,20 +71,31 @@ struct PopoverView: View {
             if let report = monitor.report {
                 // A menu bar window sizes to its content, and a ScrollView has no height of its own,
                 // so the list is measured and the scroll area takes that height, up to a cap.
-                ScrollView {
-                    sections(report)
-                        .padding(.vertical, 6)
-                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listHeight = $0 }
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        sections(report)
+                            .padding(.vertical, 6)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listHeight = $0 }
+                    }
+                    .frame(height: min(listHeight, listCap))
+                    .onChange(of: confirming, initial: true) { _, id in
+                        if let id { proxy.scrollTo(id) }
+                    }
                 }
-                .frame(height: min(listHeight, listCap))
+                Theme.line.frame(height: 1)
             }
-            Theme.line.frame(height: 1)
             footer
         }
         .frame(width: 370)
         .background(Color.black)
         .foregroundStyle(.white)
         .font(.system(size: 13))
+        .preferredColorScheme(.dark)
+        // Closing the popover drops a half-finished confirm, so it never reopens armed.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in
+            hovered = nil
+            confirming = nil
+        }
     }
 
     // MARK: Header
@@ -66,21 +103,38 @@ struct PopoverView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(heading)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(monitor.isLow ? Theme.amber : .white)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(monitor.isCritical ? Theme.red : monitor.isLow ? Theme.amber : .white)
             if let report = monitor.report {
-                HStack(spacing: 12) {
-                    total(report.total(.reclaimable), "safe to clean", .reclaimable)
-                    total(report.total(.review), "to review", .review)
+                let totals = [Verdict.reclaimable, .review].map { ($0, report.total($0)) }.filter { $0.1 > 0 }
+                if totals.isEmpty {
+                    Text("Nothing to clean").foregroundStyle(Theme.dim)
+                } else {
+                    HStack(spacing: 12) {
+                        ForEach(totals, id: \.0) { verdict, bytes in
+                            HStack(spacing: 5) {
+                                Dot(verdict: verdict)
+                                Text("\(formatBytes(bytes)) \(Text(verdict.spoken).foregroundStyle(Theme.dim))").monospacedDigit()
+                            }
+                        }
+                    }
                 }
             } else {
-                Text("Scanning. The first scan takes about a minute.").foregroundStyle(Theme.dim)
+                Text("The first scan takes about a minute.").foregroundStyle(Theme.dim)
+            }
+            if let lastCleaned = monitor.lastCleaned {
+                Text(lastCleaned).foregroundStyle(Theme.green)
             }
             if let snoozedUntil = monitor.alertState.snoozedUntil, monitor.alertState.isSnoozed() {
                 Text("Alert snoozed until \(snoozedUntil.formatted(date: .omitted, time: .shortened)) tomorrow")
                     .foregroundStyle(Theme.dim)
             }
-            ForEach(problems, id: \.self) { Text($0).foregroundStyle(Theme.amber).fixedSize(horizontal: false, vertical: true) }
+            if let appError = monitor.appError {
+                Text(appError).foregroundStyle(Theme.red).fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(monitor.report?.notes ?? [], id: \.self) {
+                Text($0).foregroundStyle(Theme.dim).fixedSize(horizontal: false, vertical: true)
+            }
         }
         .font(.system(size: 12))
         .padding(12)
@@ -90,17 +144,6 @@ struct PopoverView: View {
         guard let disk = monitor.disk else { return "Free space unknown" }
         let free = "\(gigabytes(disk.free)) free"
         return monitor.isLow ? "\(free), under your \(monitor.config.alertBelowGB) GB limit" : free
-    }
-
-    private var problems: [String] {
-        [monitor.configError, monitor.cleanError].compactMap { $0 } + (monitor.report?.notes ?? [])
-    }
-
-    private func total(_ bytes: Int64, _ label: String, _ verdict: Verdict) -> some View {
-        HStack(spacing: 5) {
-            Dot(verdict: verdict)
-            Text("\(formatBytes(bytes)) \(Text(label).foregroundStyle(Theme.dim))").monospacedDigit()
-        }
     }
 
     // MARK: Sections
@@ -126,40 +169,47 @@ struct PopoverView: View {
         let rows = report.findings.filter { $0.category == category }
         let actionable = rows.filter { $0.verdict != .keep }
         let kept = rows.filter { $0.verdict == .keep }
-        let visible = expanded.contains(category) ? actionable : Array(actionable.prefix(5))
+        let isExpanded = expanded.contains(category)
+        let visible = isExpanded ? actionable : Array(actionable.prefix(5))
 
         HStack {
-            Text(category.label).font(.system(size: 12, weight: .semibold))
+            Text(category.label).font(.system(size: 13, weight: .semibold))
             Spacer()
-            Text(formatBytes(bytes)).font(.system(size: 12)).foregroundStyle(Theme.dim).monospacedDigit()
+            if bytes > 0 {
+                Text(formatBytes(bytes)).foregroundStyle(Theme.dim).monospacedDigit()
+            }
         }
         .padding(.horizontal, 12)
         .padding(.top, 10)
         .padding(.bottom, 3)
+        .accessibilityAddTraits(.isHeader)
 
         ForEach(visible) { finding in
             FindingRow(finding: finding,
                        hovered: hovered == finding.id,
                        confirming: confirming == finding.id,
                        cleaning: monitor.cleaning.contains(finding.id),
-                       onAsk: { confirming = finding.id },
+                       failure: monitor.failures[finding.id],
+                       onActivate: { confirming = confirming == finding.id ? nil : finding.id },
                        onRun: {
                            confirming = nil
                            Task { await monitor.clean(finding) }
                        },
                        onCancel: { confirming = nil })
+                .id(finding.id)
                 .onHover { inside in
                     if inside { hovered = finding.id } else if hovered == finding.id { hovered = nil }
                 }
         }
 
-        if actionable.count > visible.count {
-            Button("\(actionable.count - visible.count) more") { expanded.insert(category) }
-                .buttonStyle(.plain)
-                .foregroundStyle(Theme.dim)
-                .font(.system(size: 12))
-                .padding(.horizontal, 30)
-                .padding(.vertical, 3)
+        if actionable.count > 5 {
+            Button(isExpanded ? "Show fewer" : "\(actionable.count - visible.count) more") {
+                if isExpanded { expanded.remove(category) } else { expanded.insert(category) }
+            }
+            .buttonStyle(TextButtonStyle())
+            .foregroundStyle(Theme.dim)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, FindingRow.textInset - 6)
         }
 
         if !kept.isEmpty {
@@ -172,22 +222,25 @@ struct PopoverView: View {
             .foregroundStyle(Theme.dim)
             .padding(.horizontal, 12)
             .padding(.vertical, 4)
+            .accessibilityElement(children: .combine)
         }
     }
 
     // MARK: Footer
 
     private var footer: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 0) {
             TimelineView(.periodic(from: .now, by: 30)) { context in
-                Text(scannedLabel(now: context.date)).foregroundStyle(Theme.dim)
+                Text(scannedLabel(now: context.date)).foregroundStyle(Theme.dim).lineLimit(1)
             }
-            Spacer()
+            .padding(.leading, 6)
+            Spacer(minLength: 8)
             if monitor.isLow && !monitor.alertState.isSnoozed() {
-                Button("Snooze alert 1 day") { monitor.snooze() }
+                Button("Snooze 1 day") { monitor.snooze() }
             }
-            Button(monitor.scanning ? "Scanning" : "Rescan") { Task { await monitor.scan() } }
-                .disabled(monitor.scanning)
+            if !monitor.scanning {
+                Button("Rescan") { Task { await monitor.scan() } }
+            }
             Menu {
                 Toggle("Open at login", isOn: Binding(get: { monitor.opensAtLogin }, set: { monitor.setOpensAtLogin($0) }))
                 Button("Edit config") { monitor.editConfig() }
@@ -199,56 +252,93 @@ struct PopoverView: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
+            .padding(.horizontal, 6)
+            .accessibilityLabel("Settings")
         }
-        .buttonStyle(.plain)
+        .buttonStyle(TextButtonStyle())
         .font(.system(size: 12))
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
     }
 
     private func scannedLabel(now: Date) -> String {
-        guard let report = monitor.report else { return "Scanning" }
-        if monitor.scanning { return "Rescanning" }
-        if now.timeIntervalSince(report.scannedAt) < 60 { return "Scanned just now" }
-        return "Scanned " + RelativeDateTimeFormatter().localizedString(for: report.scannedAt, relativeTo: now)
+        guard let report = monitor.report, !monitor.scanning else { return "Scanning" }
+        let minutes = Int(now.timeIntervalSince(report.scannedAt) / 60)
+        switch minutes {
+        case ..<1: return "Scanned just now"
+        case ..<60: return "Scanned \(minutes) min ago"
+        case ..<1440: return "Scanned \(minutes / 60) h ago"
+        default: return "Scanned \(minutes / 1440) d ago"
+        }
     }
 }
 
+/// Reclaimable is a filled dot, review a ring, keep a small dim dot: the shape carries the verdict too.
 struct Dot: View {
     let verdict: Verdict
 
     var body: some View {
-        Circle().fill(Theme.color(verdict)).frame(width: 7, height: 7)
+        Group {
+            switch verdict {
+            case .reclaimable: Circle().fill(Theme.green)
+            case .review: Circle().strokeBorder(Theme.amber, lineWidth: 1.6)
+            case .keep: Circle().fill(Theme.keep).padding(1)
+            }
+        }
+        .frame(width: 7, height: 7)
+        .accessibilityHidden(true)
     }
 }
 
-/// One finding. Hover shows the action; clicking it asks for confirmation with the exact command
-/// before anything runs.
+/// One finding. Clicking it (or hovering, which shows the action) opens a confirmation with the reason
+/// and the exact command before anything runs. A row with nothing to run reveals its files instead.
 struct FindingRow: View {
+    /// Where row text starts: horizontal padding, dot, spacing. Lines below the title align to it.
+    static let textInset: CGFloat = 12 + 7 + 8
+
     let finding: Finding
     let hovered: Bool
     let confirming: Bool
     let cleaning: Bool
-    let onAsk: () -> Void
+    let failure: String?
+    let onActivate: () -> Void
     let onRun: () -> Void
     let onCancel: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Dot(verdict: finding.verdict)
-                Text("\(finding.title)  \(Text(finding.detail).font(.system(size: 11.5)).foregroundStyle(Theme.dim))")
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 8)
-                trailing
+        VStack(alignment: .leading, spacing: 4) {
+            Button(action: finding.cleanup == nil ? reveal : onActivate) {
+                HStack(spacing: 8) {
+                    Dot(verdict: finding.verdict)
+                    Text("\(finding.title)  \(Text(finding.detail).font(.system(size: 12)).foregroundStyle(Theme.dim))")
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: 8)
+                    trailing
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(cleaning)
+            .help("\(finding.title)\n\(finding.detail)")
+            .accessibilityLabel("\(finding.title), \(finding.verdict.spoken), \(formatBytes(finding.bytes))")
+            .accessibilityHint(finding.detail)
+
+            if let failure {
+                Text("Not cleaned: \(failure)")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.red)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, Self.textInset)
+                    .padding(.trailing, 12)
+                    .padding(.bottom, 4)
             }
             if confirming { confirmation }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
         .background(hovered || confirming ? Theme.hover : .clear)
-        .contentShape(Rectangle())
     }
 
     @ViewBuilder
@@ -257,11 +347,8 @@ struct FindingRow: View {
         if cleaning {
             Text("Cleaning").foregroundStyle(Theme.dim)
         } else if hovered && !confirming {
-            if finding.cleanup != nil {
-                Button("Clean \(size)", action: onAsk).buttonStyle(.plain).foregroundStyle(Theme.green)
-            } else {
-                Button("Show", action: reveal).buttonStyle(.plain).foregroundStyle(Theme.green)
-            }
+            Text(finding.cleanup == nil ? "Show in Finder" : "Clean \(size)")
+                .foregroundStyle(finding.cleanup == nil ? .white : Theme.green)
         } else {
             Text(size).monospacedDigit()
         }
@@ -269,22 +356,31 @@ struct FindingRow: View {
 
     private var confirmation: some View {
         VStack(alignment: .leading, spacing: 6) {
+            Text(finding.detail)
+                .font(.system(size: 12))
+                .fixedSize(horizontal: false, vertical: true)
             if let command = finding.cleanup {
                 Text(command)
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(Theme.dim)
-                    .lineLimit(4)
+                    .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
             }
-            HStack(spacing: 14) {
-                Button("Run", action: onRun).foregroundStyle(finding.verdict == .review ? Theme.amber : Theme.green)
+            HStack(spacing: 0) {
+                Button("Run", action: onRun)
+                    .foregroundStyle(finding.verdict == .review ? Theme.amber : Theme.green)
+                    .keyboardShortcut(.defaultAction)
                 Button("Cancel", action: onCancel)
+                    .keyboardShortcut(.cancelAction)
                 if !finding.paths.isEmpty { Button("Show in Finder", action: reveal) }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(TextButtonStyle())
             .font(.system(size: 12, weight: .medium))
+            .padding(.leading, -6)
         }
-        .padding(.leading, 15)
+        .padding(.leading, Self.textInset)
+        .padding(.trailing, 12)
+        .padding(.bottom, 8)
     }
 
     private func reveal() {

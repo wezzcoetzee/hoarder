@@ -146,7 +146,7 @@ enum WorktreeScanner {
         let first = orphans[0]
         let count = orphans.count == 1 ? "1 orphan" : "\(orphans.count) orphans"
         return Finding(category: .worktree, title: "\(first.repo) · \(count)",
-                       detail: "directories gone, registrations left", paths: orphans.map(\.entry.path).sorted(),
+                       detail: "folders already gone, tidies git's list", paths: orphans.map(\.entry.path).sorted(),
                        bytes: 0, lastActivity: orphans.compactMap(\.tip).max(), verdict: .reclaimable,
                        cleanup: "git --git-dir=\(shellQuote(first.gitDir)) worktree prune")
     }

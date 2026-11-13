@@ -36,29 +36,48 @@ struct HoarderApp: App {
 }
 
 /// Free space next to a drive icon. Template-rendered normally, so it follows the menu bar's appearance;
-/// amber under the limit, which needs a pre-rendered image because the menu bar ignores view tints.
+/// amber under the limit and red under a quarter of it, which needs a pre-rendered image because the
+/// menu bar ignores view tints.
 struct MenuBarLabel: View {
     let monitor: Monitor
 
     var body: some View {
         let text = monitor.disk.map { gigabytes($0.free, unit: "G") } ?? "–"
-        if monitor.isLow {
-            Image(nsImage: amber(text))
-        } else {
-            HStack(spacing: 4) {
-                Image(systemName: "internaldrive")
-                Text(text)
+        Group {
+            if let color = warning {
+                Image(nsImage: tinted(text, color))
+            } else {
+                HStack(spacing: 4) {
+                    Image(systemName: "internaldrive")
+                    Text(text)
+                }
             }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(spoken)
     }
 
-    private func amber(_ text: String) -> NSImage {
+    /// The menu bar is light or dark independently of the popover, so the tint follows it.
+    private var warning: Color? {
+        let light = NSApp?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua
+        if monitor.isCritical { return light ? Theme.redOnLight : Theme.red }
+        if monitor.isLow { return light ? Theme.amberOnLight : Theme.amber }
+        return nil
+    }
+
+    private var spoken: String {
+        guard let disk = monitor.disk else { return "Hoarder, free space unknown" }
+        let state = monitor.isLow ? ", under your \(monitor.config.alertBelowGB) GB limit" : ""
+        return "Hoarder, \(gigabytes(disk.free)) free\(state)"
+    }
+
+    private func tinted(_ text: String, _ color: Color) -> NSImage {
         let label = HStack(spacing: 4) {
             Image(systemName: "internaldrive")
             Text(text)
         }
         .font(.system(size: 13))
-        .foregroundStyle(Theme.amber)
+        .foregroundStyle(color)
         let renderer = ImageRenderer(content: label)
         renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
         let image = renderer.nsImage ?? NSImage()

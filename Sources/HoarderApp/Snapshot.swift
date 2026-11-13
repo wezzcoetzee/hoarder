@@ -16,7 +16,9 @@ enum Snapshot {
         var confirming: Finding.ID?
         var cleaning: Finding.ID?
         var expanded: [HoarderCore.Category]?
-        var cleanError: String?
+        /// Finding id to the error shown under that row.
+        var failures: [Finding.ID: String]?
+        var lastCleaned: String?
         /// Shows the whole list instead of capping it at the popover's scroll height.
         var full: Bool?
     }
@@ -35,7 +37,7 @@ enum Snapshot {
         let monitor = Monitor(preview: report,
                               disk: DiskSpace(free: Int64((state.freeGB ?? 22) * 1e9), total: 994_000_000_000),
                               config: config, alertState: alertState, scanning: state.scanning ?? false,
-                              cleaning: Set([state.cleaning].compactMap { $0 }), cleanError: state.cleanError)
+                              cleaning: Set([state.cleaning].compactMap { $0 }), failures: state.failures ?? [:], lastCleaned: state.lastCleaned)
 
         _ = NSApplication.shared
         let popover = PopoverView(monitor: monitor, hovered: state.hovered, confirming: state.confirming,

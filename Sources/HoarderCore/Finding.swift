@@ -77,6 +77,8 @@ public extension Report {
     }
 }
 
+/// One format for every size: whole MB under 1 GB, otherwise GB to one decimal, so a column of sizes lines up.
 public func formatBytes(_ bytes: Int64) -> String {
-    ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    let gigabytes = Double(bytes) / 1e9
+    return gigabytes < 1 ? "\(Int((gigabytes * 1000).rounded())) MB" : String(format: "%.1f GB", gigabytes)
 }
