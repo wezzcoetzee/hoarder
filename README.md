@@ -4,22 +4,18 @@ A macOS menu bar app that watches free disk space and finds what agent coding le
 
 <img src="docs/screenshots/menubar.png" alt="Menu bar label showing 22G free in amber" height="24">
 
-| Popover | Click a row to see the command, then Run |
+| Popover, with other devices in a strip on top | Click a row to see the command, then Run |
 |---|---|
-| <img src="docs/screenshots/overview.png" alt="Popover listing caches and worktrees with sizes and verdicts" width="400"> | <img src="docs/screenshots/confirm.png" alt="A merged worktree opened to show its git worktree remove command and Run" width="400"> |
+| <img src="docs/screenshots/overview.png" alt="Popover with a strip of devices (This Mac 22 GB free, homeserver 123 GB free, mac-mini unreachable) above caches and worktrees with sizes and verdicts" width="400"> | <img src="docs/screenshots/confirm.png" alt="A merged worktree opened to show its git worktree remove command and Run" width="400"> |
 
 | Clean all safe rows at once | In-use rows clean too, forcing behind a warning |
 |---|---|
 | <img src="docs/screenshots/clean-safe.png" alt="Header asking to run all green rows one at a time, with Run and Cancel" width="400"> | <img src="docs/screenshots/force.png" alt="A worktree with uncommitted changes opened to show a red warning and a git worktree remove --force command" width="400"> |
 
-| Other devices sit in a strip above the list |
-|---|
-| <img src="docs/screenshots/devices.png" alt="A strip of three devices above the list: This Mac 22 GB free, homeserver 123 GB free, mac-mini unreachable" width="400"> |
-
 <details>
 <summary>Every section, with in-use rows shown and a clean running</summary>
 
-<img src="docs/screenshots/full-list.png" alt="Full popover: caches, worktrees, node_modules and Docker, with kept rows listed" width="400">
+<img src="docs/screenshots/full-list.png" alt="Full popover: caches, worktrees, node_modules and Docker with a row per volume, with kept rows listed" width="400">
 
 </details>
 
@@ -93,7 +89,7 @@ That also writes the menu bar label to `/tmp/popover-menubar.png`. Pass `none` i
 ./scripts/screenshots.sh   # regenerate docs/screenshots
 ```
 
-The README images come from `scripts/screenshots/report.json`, a made-up report, so no real paths ship. Each `scripts/screenshots/states/<name>.json` is a state file as above and renders to `docs/screenshots/<name>.png`; add one to add a shot. Rerun the script after UI changes.
+The README images come from `scripts/screenshots/report.json`, a made-up report, so no real paths ship. Each `scripts/screenshots/states/<name>.json` is a state file as above and renders to `docs/screenshots/<name>.png`; add one to add a shot. Rerun the script after UI changes. It needs Xcode's toolchain, as the Command Line Tools lack SwiftUI's macro plugin: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer ./scripts/screenshots.sh` if `xcode-select -p` points at CommandLineTools.
 
 ## Verdicts
 
@@ -179,7 +175,7 @@ If a device shows as unreachable, its header says why:
 
 Everything below is editable in Settings (the gear, then Settings…): General holds open at login and the scan intervals, then each machine has its own page with its free-space limit, project folders, a connection test and Remove (or right-click it in the list). Devices are added there from your tailnet peers or by name; a pasted URL such as `https://homeserver.<tailnet>.ts.net/` is trimmed to its host.
 
-<img src="docs/screenshots/settings.png" alt="Settings window: General and a list of machines on the left, homeserver's page on the right with status, host, its own 20 GB limit, two project folders, Test connection and Remove" width="560">
+<img src="docs/screenshots/settings.png" alt="Settings window: General and a list of machines on the left, homeserver's page on the right with status, host, its own 20 GB limit, two project folders, Test connection and Remove device" width="560">
 
 Settings saves to `~/.config/hoarder/config.json` as you change things, writing only what differs from the defaults. Hand edits still work and apply within a minute. While the file does not parse, Settings shows the error and stays read-only, so it never overwrites what you typed. Every key is optional; Open config.json in General writes the defaults if the file is missing.
 

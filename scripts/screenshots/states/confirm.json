@@ -1,2 +1,17 @@
-{ "freeGB": 22, "alertBelowGB": 40,
-  "confirming": "worktree:/Users/dev/.worktrees/storefront/checkout-redesign" }
+{
+  "freeGB": 22,
+  "alertBelowGB": 40,
+  "confirming": "worktree:/Users/dev/.worktrees/storefront/checkout-redesign",
+  "devices": [
+    {
+      "host": "homeserver",
+      "freeGB": 123,
+      "alertBelowGB": 20,
+      "platform": "linux x86_64"
+    },
+    {
+      "host": "mac-mini",
+      "problem": "Host key not trusted, run ssh mac-mini once to accept it"
+    }
+  ]
+}
