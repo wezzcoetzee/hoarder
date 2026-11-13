@@ -460,10 +460,6 @@ struct FindingRow: View {
             if confirming { panel }
         }
         .background(confirming ? Theme.panel : hovered ? Theme.hover : .clear)
-        // VoiceOver goes back to the row when its panel closes.
-        .onChange(of: confirming) { _, open in
-            if !open { rowFocused = true }
-        }
     }
 
     private var line: some View {
@@ -567,14 +563,15 @@ struct FindingRow: View {
                         .accessibilityLabel("Run cleanup for \(finding.title)")
                         .accessibilityInputLabels(["Run", "Run cleanup"])
                         .accessibilityFocused($panelFocused)
-                    Button("Cancel", action: onCancel)
+                    Button("Cancel", action: close)
                         .keyboardShortcut(.cancelAction)
                 } else {
-                    Button("Close", action: onCancel)
+                    Button("Close", action: close)
                         .keyboardShortcut(.cancelAction)
                         .accessibilityFocused($panelFocused)
                 }
-                if !finding.paths.isEmpty { Button("Show in Finder", action: reveal) }
+                // Orphaned worktrees list folders that are already gone.
+                if let first = finding.paths.first, exists(atPath: first) { Button("Show in Finder", action: reveal) }
             }
             .buttonStyle(TextButtonStyle())
             .font(.system(size: 12))
@@ -585,6 +582,17 @@ struct FindingRow: View {
         .padding(.trailing, 12)
         .padding(.bottom, 4)
         .onAppear { panelFocused = true }
+    }
+
+    /// VoiceOver goes back to the row only when the user closes its panel, not when opening another
+    /// row closes it, so two rows never ask for focus at once.
+    private func close() {
+        onCancel()
+        rowFocused = true
+    }
+
+    private func exists(atPath path: String) -> Bool {
+        FileManager.default.fileExists(atPath: path)
     }
 
     private func reveal() {

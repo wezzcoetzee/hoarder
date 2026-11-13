@@ -26,6 +26,7 @@ final class Monitor {
     private(set) var lastCleaned: String?
     /// "Not cleaned: X, see its row" after a clean fails, until the popover closes.
     private(set) var lastFailed: String?
+    private var lastFailedID: Finding.ID?
     /// The user turned Hoarder's notifications off, so low-disk alerts cannot arrive.
     private(set) var notificationsOff = false
     /// Cleaned while a scan was running, so that scan's result does not bring the rows back.
@@ -70,9 +71,14 @@ final class Monitor {
             report.findings.first { $0.id == id }.map(report.removing) ?? report
         }
         report = current
-        // A failure stays while its row can still be cleaned; a row that is now kept drops it.
+        // A failure stays while its row can still be cleaned; a row that is now kept drops it, and the
+        // header says why instead of pointing at a row that no longer shows the failure.
         let cleanable = Set(current.findings.filter { $0.verdict != .keep }.map(\.id))
         failures = failures.filter { cleanable.contains($0.key) }
+        if let id = lastFailedID, lastFailed != nil, !cleanable.contains(id) {
+            let now = current.findings.first { $0.id == id }
+            lastFailed = now.map { "Not cleaned: \($0.fullName), now in use: \($0.detail)" }
+        }
         scanning = false
         refreshDisk()
     }
@@ -100,6 +106,7 @@ final class Monitor {
             }
             failures[finding.id] = String(reason.prefix(240))
             lastFailed = "Not cleaned: \(finding.fullName), see its row"
+            lastFailedID = finding.id
             AccessibilityNotification.Announcement("\(finding.fullName) not cleaned").post()
             // git refuses a worktree that changed since the scan; a rescan shows it as kept, with why.
             if finding.category == .worktree { Task { await scan() } }
