@@ -6,12 +6,16 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .executable(name: "hoarder", targets: ["hoarder"]),
-        .executable(name: "HoarderApp", targets: ["HoarderApp"]),
     ],
     targets: [
         .target(name: "HoarderCore"),
         .executableTarget(name: "hoarder", dependencies: ["HoarderCore"]),
-        .executableTarget(name: "HoarderApp", dependencies: ["HoarderCore"]),
         .testTarget(name: "HoarderCoreTests", dependencies: ["HoarderCore"]),
     ]
 )
+
+// The menu bar app needs AppKit and SwiftUI. On Linux only the core and the CLI build, for devices.
+#if os(macOS)
+package.products.append(.executable(name: "HoarderApp", targets: ["HoarderApp"]))
+package.targets.append(.executableTarget(name: "HoarderApp", dependencies: ["HoarderCore"]))
+#endif
