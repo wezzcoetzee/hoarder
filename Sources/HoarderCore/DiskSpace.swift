@@ -51,6 +51,13 @@ public struct AlertState: Codable, Sendable, Equatable {
         alerted = false
     }
 
+    /// Ends a snooze early. Unsnoozing happens in the popover, so while the disk is low the user has
+    /// just seen it: that counts as this dip's alert, and the next one comes after a recovery.
+    public mutating func unsnooze(low: Bool) {
+        snoozedUntil = nil
+        alerted = low
+    }
+
     public func isSnoozed(now: Date = .now) -> Bool {
         snoozedUntil.map { now < $0 } ?? false
     }

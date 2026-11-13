@@ -85,7 +85,7 @@ Clean all safe runs every reclaimable row's command, one at a time. Kept rows ca
 
 ## Alerts
 
-Free space is read every minute (the `df` figure, not Finder's, which counts purgeable space). Below `alertBelowGB` the menu bar turns amber and one notification is sent per dip. Recovering re-arms it; Snooze silences it for a day.
+Free space is read every minute (the `df` figure, not Finder's, which counts purgeable space). Below `alertBelowGB` the menu bar turns amber and one notification is sent per dip. Recovering re-arms it; Snooze silences it for a day, and Unsnooze (⌘S again) ends that early.
 
 ## Config
 

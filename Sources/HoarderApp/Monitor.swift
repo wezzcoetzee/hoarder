@@ -153,6 +153,11 @@ final class Monitor {
         saveAlertState()
     }
 
+    func unsnooze() {
+        alertState.unsnooze(low: isLow)
+        saveAlertState()
+    }
+
     func setOpensAtLogin(_ on: Bool) {
         do {
             if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }

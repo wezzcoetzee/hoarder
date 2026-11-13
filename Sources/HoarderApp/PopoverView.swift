@@ -180,8 +180,17 @@ struct PopoverView: View {
             }
             if let snoozedUntil = monitor.alertState.snoozedUntil, monitor.alertState.isSnoozed() {
                 let day = Calendar.current.isDateInToday(snoozedUntil) ? "today" : "tomorrow"
-                Text("Alert snoozed until \(snoozedUntil.formatted(date: .omitted, time: .shortened)) \(day)")
-                    .foregroundStyle(Theme.dim)
+                HStack(spacing: 0) {
+                    Text("Alert snoozed until \(snoozedUntil.formatted(date: .omitted, time: .shortened)) \(day)")
+                        .foregroundStyle(Theme.dim)
+                    // ⌘S, like Snooze, which takes its place again once unsnoozed.
+                    Button("Unsnooze") { monitor.unsnooze() }
+                        .buttonStyle(TextButtonStyle())
+                        .keyboardShortcut("s")
+                        .help("Unsnooze the low-disk alert (⌘S)")
+                        .accessibilityLabel("Unsnooze low-disk alert")
+                }
+                .padding(.vertical, -5)
             }
             if monitor.isLow && monitor.notificationsOff {
                 HStack(spacing: 0) {

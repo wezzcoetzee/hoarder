@@ -92,6 +92,20 @@ private func finding(_ path: String, _ bytes: Int64) -> Finding {
     #expect(state.evaluate(free: 30 * gb, limit: limit, now: now) == true)
 }
 
+@Test func unsnoozingWhileLowCountsAsTheAlertButNotWhileAbove() {
+    let gb: Int64 = 1_000_000_000
+    let limit = 40 * gb
+    let now = Date.now
+    var state = AlertState()
+    state.snooze(until: now.addingTimeInterval(60))
+    state.unsnooze(low: true)
+    #expect(!state.isSnoozed(now: now))
+    #expect(state.evaluate(free: 30 * gb, limit: limit, now: now) == false)   // seen in the popover
+    state.snooze(until: now.addingTimeInterval(60))
+    state.unsnooze(low: false)   // inside the margin, so the snooze never ended on its own
+    #expect(state.evaluate(free: 30 * gb, limit: limit, now: now) == true)    // the next dip still alerts
+}
+
 @Test func namesMisspelledConfigKeys() {
     let file = Data(#"{"alertBelowGB": 30, "alertBelowGb": 20, "projectRoot": []}"#.utf8)
     #expect(Config.unknownKeys(in: file) == ["alertBelowGb", "projectRoot"])
