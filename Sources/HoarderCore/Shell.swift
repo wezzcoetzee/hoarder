@@ -10,6 +10,11 @@ enum Shell {
         return (inherited.split(separator: ":").map(String.init) + extra).joined(separator: ":")
     }()
 
+    /// Whether `tool` is an executable on the PATH that `run` gives commands, cleanups included.
+    static func installed(_ tool: String) -> Bool {
+        path.split(separator: ":").contains { FileManager.default.isExecutableFile(atPath: "\($0)/\(tool)") }
+    }
+
     struct Output {
         let status: Int32
         let stdout: String

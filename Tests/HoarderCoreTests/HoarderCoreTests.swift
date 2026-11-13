@@ -154,3 +154,13 @@ func describesSSHFailuresInWordsThatSayWhatToDo(status: Int32, stderr: String, e
     #expect(saved.keys.sorted() == ["alertBelowGB", "alertBelowGb", "devices"])
     #expect(try JSONDecoder().decode(Config.self, from: Data(contentsOf: url)).devices == config.devices)
 }
+
+@Test func cacheCleanupFallsBackWhenTheToolIsMissing() {
+    let missing = { (_: String) in false }
+    #expect(CacheScanner.cleanup("go clean -cache", at: "/c/go-build", removable: true, detail: "d",
+                                 installed: { _ in true }) == ("d", "go clean -cache"))
+    #expect(CacheScanner.cleanup("go clean -cache", at: "/c/go-build", removable: true, detail: "d",
+                                 installed: missing) == ("d", "rm -rf '/c/go-build'"))
+    #expect(CacheScanner.cleanup("go clean -modcache", at: "/go/pkg/mod", removable: false, detail: "d",
+                                 installed: missing) == ("go not installed, delete by hand", nil))
+}

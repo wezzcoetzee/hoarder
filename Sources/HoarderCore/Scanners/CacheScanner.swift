@@ -9,6 +9,9 @@ enum CacheScanner {
         let verdict: Verdict
         let detail: String
         let cleanup: String?
+        /// Whether `rm -rf` of the path is an equal cleanup when the tool itself is not installed.
+        /// False for the Go module cache, whose files are read-only.
+        var removable = true
     }
 
     private static let regenerable = "re-downloaded when needed"
@@ -26,13 +29,13 @@ enum CacheScanner {
         Known(title: "npm cache", path: "~/.npm/_cacache", verdict: .review, detail: regenerable,
               cleanup: "npm cache clean --force"),
         Known(title: "bun cache", path: "~/.bun/install/cache", verdict: .review, detail: regenerable,
-              cleanup: "bun pm cache rm"),
+              cleanup: "rm -rf ~/.bun/install/cache"),
         Known(title: "pnpm store", path: path(mac: "~/Library/pnpm/store", linux: "~/.local/share/pnpm/store"),
               verdict: .review, detail: "prune keeps packages in use", cleanup: "pnpm store prune"),
         Known(title: "Yarn cache", path: path(mac: "~/Library/Caches/Yarn", linux: "~/.cache/yarn"),
               verdict: .review, detail: regenerable, cleanup: "yarn cache clean"),
         Known(title: "Go modules", path: "~/go/pkg/mod", verdict: .review, detail: regenerable,
-              cleanup: "go clean -modcache"),
+              cleanup: "go clean -modcache", removable: false),
         Known(title: "Go build cache", path: path(mac: "~/Library/Caches/go-build", linux: "~/.cache/go-build"),
               verdict: .reclaimable, detail: "rebuilt on next build", cleanup: "go clean -cache"),
         Known(title: "Homebrew downloads", path: path(mac: "~/Library/Caches/Homebrew", linux: "~/.cache/Homebrew"),
@@ -56,8 +59,20 @@ enum CacheScanner {
         let sizes = await Shell.sizes(of: present.map(\.1))
         return present.compactMap { known, path in
             guard let bytes = sizes[path], bytes > 0 else { return nil }
-            return Finding(category: .cache, title: known.title, detail: known.detail, paths: [path],
-                           bytes: bytes, lastActivity: nil, verdict: known.verdict, cleanup: known.cleanup)
+            let (detail, command) = cleanup(known.cleanup, at: path, removable: known.removable,
+                                            detail: known.detail, installed: Shell.installed)
+            return Finding(category: .cache, title: known.title, detail: detail, paths: [path],
+                           bytes: bytes, lastActivity: nil, verdict: known.verdict, cleanup: command)
         }
+    }
+
+    /// A cache often outlives its tool, or the tool is only on the PATH an interactive shell sets up.
+    /// Rather than offer a command that fails with "command not found", fall back to deleting the folder,
+    /// or offer nothing and say why.
+    static func cleanup(_ command: String?, at path: String, removable: Bool, detail: String,
+                        installed: (String) -> Bool) -> (detail: String, command: String?) {
+        guard let command, let tool = command.split(separator: " ").first.map(String.init),
+              !installed(tool) else { return (detail, command) }
+        return removable ? (detail, "rm -rf \(shellQuote(path))") : ("\(tool) not installed, delete by hand", nil)
     }
 }
