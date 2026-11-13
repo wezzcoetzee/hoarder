@@ -57,8 +57,9 @@ enum DockerScanner {
 
         let prunable = rows.compactMap { row -> Finding? in
             guard let prune = prunes[row.type], let bytes = parseSize(row.reclaimable), bytes > 0 else { return nil }
+            let unused = Int(row.totalCount).flatMap { total in Int(row.active).map { total - $0 } }
             return Finding(category: .docker, title: prune.title,
-                           detail: "\(row.totalCount) total, \(row.active) in use, \(prune.why)",
+                           detail: unused.map { "\(prune.why), \($0) unused" } ?? prune.why,
                            paths: [], bytes: bytes, lastActivity: nil, verdict: prune.verdict, cleanup: prune.command)
         }
         return (prunable + disks, false)

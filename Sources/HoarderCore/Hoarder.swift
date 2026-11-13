@@ -11,7 +11,7 @@ public enum Hoarder {
 
         let dependencies = await nodeModules
         let findings = await including(dependencies, in: worktrees) + dependencies + caches + docker.findings
-        let notes = await docker.daemonDown ? ["Docker is not running, so prunable images and caches are unknown."] : []
+        let notes = await docker.daemonDown ? ["Start Docker to see what it can clean"] : []
 
         return Report(findings: findings.sorted { ($0.verdict, -$0.bytes) < ($1.verdict, -$1.bytes) },
                       notes: notes, scannedAt: start, duration: Date.now.timeIntervalSince(start))

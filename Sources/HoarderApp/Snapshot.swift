@@ -16,6 +16,8 @@ enum Snapshot {
         var confirming: Finding.ID?
         var cleaning: Finding.ID?
         var expanded: [HoarderCore.Category]?
+        /// Sections whose "N in use" row is open.
+        var showingKept: [HoarderCore.Category]?
         /// Finding id to the error shown under that row.
         var failures: [Finding.ID: String]?
         var lastCleaned: String?
@@ -41,7 +43,8 @@ enum Snapshot {
 
         _ = NSApplication.shared
         let popover = PopoverView(monitor: monitor, hovered: state.hovered, confirming: state.confirming,
-                                  expanded: Set(state.expanded ?? []), listCap: state.full == true ? .infinity : 470)
+                                  expanded: Set(state.expanded ?? []),
+                                  showingKept: Set(state.showingKept ?? []), listCap: state.full == true ? .infinity : 470)
         try write(popover, to: output)
         let label = MenuBarLabel(monitor: monitor)
             .padding(.horizontal, 10).frame(height: 24).background(Color(white: 0.16))

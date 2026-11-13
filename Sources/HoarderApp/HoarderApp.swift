@@ -40,6 +40,7 @@ struct HoarderApp: App {
 /// menu bar ignores view tints.
 struct MenuBarLabel: View {
     let monitor: Monitor
+    @Environment(\.colorScheme) private var menuBarScheme
 
     var body: some View {
         let text = monitor.disk.map { gigabytes($0.free, unit: "G") } ?? "–"
@@ -59,7 +60,7 @@ struct MenuBarLabel: View {
 
     /// The menu bar is light or dark independently of the popover, so the tint follows it.
     private var warning: Color? {
-        let light = NSApp?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua
+        let light = menuBarScheme == .light
         if monitor.isCritical { return light ? Theme.redOnLight : Theme.red }
         if monitor.isLow { return light ? Theme.amberOnLight : Theme.amber }
         return nil
@@ -67,8 +68,7 @@ struct MenuBarLabel: View {
 
     private var spoken: String {
         guard let disk = monitor.disk else { return "Hoarder, free space unknown" }
-        let state = monitor.isLow ? ", under your \(monitor.config.alertBelowGB) GB limit" : ""
-        return "Hoarder, \(gigabytes(disk.free)) free\(state)"
+        return "Hoarder, " + freeSpace(disk.free, limitGB: monitor.config.alertBelowGB, low: monitor.isLow)
     }
 
     private func tinted(_ text: String, _ color: Color) -> NSImage {

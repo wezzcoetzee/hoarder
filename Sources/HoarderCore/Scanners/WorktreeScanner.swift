@@ -67,9 +67,9 @@ enum WorktreeScanner {
         if worktree.dirty { return (.keep, "uncommitted changes") }
         if worktree.entry.locked { return (.keep, "locked") }
         if age < staleAfterDays { return (.keep, "active, \(age)d old") }
-        if worktree.merged { return (.reclaimable, "clean, merged, \(age)d old") }
+        if worktree.merged { return (.reclaimable, "merged, \(age)d old") }
         let unpushed = worktree.pushed ? "" : ", never pushed"
-        return (.review, "clean, unmerged\(unpushed), \(age)d old")
+        return (.review, "unmerged\(unpushed), \(age)d old")
     }
 
     private static func inspect(gitDir: String) async -> [Worktree] {

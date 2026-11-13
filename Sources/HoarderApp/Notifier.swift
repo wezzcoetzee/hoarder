@@ -17,10 +17,10 @@ enum Notifier {
 
     static func lowDisk(free: Int64, limitGB: Int, report: Report?) {
         guard available else { return }
-        let title = "\(gigabytes(free)) free"
-        var body = "Under your \(limitGB) GB limit."
+        let title = freeSpace(free, limitGB: limitGB, low: true)
+        var body = "Open Hoarder to see what can go."
         if let report, let biggest = report.findings.first(where: { $0.verdict == .reclaimable }) {
-            body = "\(formatBytes(report.total(.reclaimable))) is safe to clean. \(name(of: biggest)) is \(formatBytes(biggest.bytes))."
+            body = "\(formatBytes(report.total(.reclaimable))) is safe to clean. \(biggest.fullName) is \(formatBytes(biggest.bytes))."
         }
         Task {
             let content = UNMutableNotificationContent()
@@ -33,14 +33,21 @@ enum Notifier {
     }
 }
 
-/// A row's title with its category, since "Build cache" alone does not say whose.
-private func name(of finding: Finding) -> String {
-    switch finding.category {
-    case .docker: "Docker " + finding.title.prefix(1).lowercased() + finding.title.dropFirst()
-    case .worktree: "Worktree " + finding.title
-    case .nodeModules: "node_modules in " + finding.title
-    case .cache: finding.title
+extension Finding {
+    /// The title with its category, since "Build cache" alone does not say whose.
+    var fullName: String {
+        switch category {
+        case .docker: "Docker " + title.prefix(1).lowercased() + title.dropFirst()
+        case .worktree: "Worktree " + title
+        case .nodeModules: "node_modules in " + title
+        case .cache: title
+        }
     }
+}
+
+/// The one free-space sentence: popover heading, notification title, and the menu bar's spoken label.
+func freeSpace(_ free: Int64, limitGB: Int, low: Bool) -> String {
+    low ? "\(gigabytes(free)) free, under your \(limitGB) GB limit" : "\(gigabytes(free)) free"
 }
 
 /// Without this, macOS hides the banner while the popover is open, because the app is frontmost then.

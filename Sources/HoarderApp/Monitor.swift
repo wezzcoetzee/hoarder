@@ -2,6 +2,7 @@ import AppKit
 import HoarderCore
 import Observation
 import ServiceManagement
+import SwiftUI
 
 /// Owns the app's state: free space (checked every minute), the latest scan (rerun on the configured
 /// interval), low-disk alerts, and cleaning.
@@ -14,11 +15,13 @@ final class Monitor {
     private(set) var cleaning: Set<Finding.ID> = []
     private(set) var alertState: AlertState
     private(set) var opensAtLogin = SMAppService.mainApp.status == .enabled
-    /// Config or Open at login trouble, shown in the header.
-    private(set) var appError: String?
-    /// Why a clean failed, per row: the last line the command printed. Cleared by the next scan.
+    /// Shown in the header. Kept apart, because config is re-read every minute and must not wipe a
+    /// login error.
+    private(set) var configError: String?
+    private(set) var loginError: String?
+    /// Why a clean failed, per row: the last line the command printed. Kept while the row exists.
     private(set) var failures: [Finding.ID: String] = [:]
-    /// "Cleaned X, 2.1 GB" after a clean succeeds. Cleared by the next scan.
+    /// "Cleaned X, 2.1 GB" after a clean succeeds, until the popover closes.
     private(set) var lastCleaned: String?
     /// Cleaned while a scan was running, so that scan's result does not bring the rows back.
     private var cleanedDuringScan: Set<Finding.ID> = []
@@ -54,13 +57,14 @@ final class Monitor {
         guard !scanning else { return }
         scanning = true
         cleanedDuringScan = []
-        failures = [:]
-        lastCleaned = nil
         loadConfig()
         let fresh = await Hoarder.scan(config: config)
-        report = cleanedDuringScan.reduce(fresh) { report, id in
+        let current = cleanedDuringScan.reduce(fresh) { report, id in
             report.findings.first { $0.id == id }.map(report.removing) ?? report
         }
+        report = current
+        let present = Set(current.findings.map(\.id))
+        failures = failures.filter { present.contains($0.key) }
         scanning = false
         refreshDisk()
     }
@@ -73,12 +77,20 @@ final class Monitor {
         if result.ok {
             report = report?.removing(finding)
             if scanning { cleanedDuringScan.insert(finding.id) }
-            lastCleaned = "Cleaned \(finding.title), \(formatBytes(finding.bytes))"
+            let message = "Cleaned \(finding.fullName), \(formatBytes(finding.bytes))"
+            lastCleaned = message
+            AccessibilityNotification.Announcement(message).post()
         } else {
             let lastLine = result.output.split(separator: "\n").last.map(String.init) ?? "exited with an error"
             failures[finding.id] = String(lastLine.prefix(240))
+            AccessibilityNotification.Announcement("\(finding.fullName) not cleaned").post()
         }
         refreshDisk()
+    }
+
+    /// The success line has been seen once the popover closes.
+    func dismissCleaned() {
+        lastCleaned = nil
     }
 
     func snooze() {
@@ -89,8 +101,9 @@ final class Monitor {
     func setOpensAtLogin(_ on: Bool) {
         do {
             if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+            loginError = nil
         } catch {
-            appError = "Open at login: \(error.localizedDescription)"
+            loginError = "Open at login: \(error.localizedDescription)"
         }
         opensAtLogin = SMAppService.mainApp.status == .enabled
     }
@@ -100,7 +113,7 @@ final class Monitor {
             try Config.writeDefaultsIfMissing()
             NSWorkspace.shared.open(Config.fileURL)
         } catch {
-            appError = "Could not create \(Config.fileURL.path): \(error.localizedDescription)"
+            configError = "Could not create \(Config.fileURL.path): \(error.localizedDescription)"
         }
     }
 
@@ -124,7 +137,9 @@ final class Monitor {
     private func refreshDisk() {
         loadConfig()
         disk = DiskSpace.current()
-        guard let disk else { return }
+        // No alert before the first scan: it would have nothing to suggest, and could fire before
+        // notification permission is answered and be spent unseen.
+        guard let disk, report != nil else { return }
         if alertState.evaluate(free: disk.free, limit: config.alertLimitBytes) {
             Notifier.lowDisk(free: disk.free, limitGB: config.alertBelowGB, report: report)
         }
@@ -134,9 +149,18 @@ final class Monitor {
     private func loadConfig() {
         do {
             config = try Config.load()
-            appError = nil
+            configError = nil
         } catch {
-            appError = "config.json is invalid, using defaults."
+            configError = "config.json \(Self.describe(error)), using defaults"
+        }
+    }
+
+    private static func describe(_ error: Error) -> String {
+        switch error {
+        case DecodingError.typeMismatch(let type, let context):
+            "has the wrong type for \(context.codingPath.map(\.stringValue).joined(separator: ".")), expected \(type)"
+        default:
+            "is not valid JSON"
         }
     }
 

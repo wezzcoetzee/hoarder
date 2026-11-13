@@ -10,7 +10,7 @@ enum CacheScanner {
         let cleanup: String?
     }
 
-    private static let regenerable = "regenerable, costs a re-download"
+    private static let regenerable = "re-downloaded when needed"
 
     private static let known = [
         Known(title: "npm cache", path: "~/.npm/_cacache", verdict: .review, detail: regenerable,
@@ -18,7 +18,7 @@ enum CacheScanner {
         Known(title: "bun cache", path: "~/.bun/install/cache", verdict: .review, detail: regenerable,
               cleanup: "bun pm cache rm"),
         Known(title: "pnpm store", path: "~/Library/pnpm/store", verdict: .review,
-              detail: "prune drops packages no project references", cleanup: "pnpm store prune"),
+              detail: "prune keeps packages in use", cleanup: "pnpm store prune"),
         Known(title: "Yarn cache", path: "~/Library/Caches/Yarn", verdict: .review, detail: regenerable,
               cleanup: "yarn cache clean"),
         Known(title: "Go modules", path: "~/go/pkg/mod", verdict: .review, detail: regenerable,
@@ -33,7 +33,7 @@ enum CacheScanner {
               detail: regenerable, cleanup: "rm -rf ~/Library/Caches/ms-playwright"),
         Known(title: "uv cache", path: "~/.cache/uv", verdict: .review, detail: regenerable, cleanup: "uv cache clean"),
         Known(title: "Claude Code transcripts", path: "~/.claude/projects", verdict: .review,
-              detail: "set cleanupPeriodDays in ~/.claude/settings.json to cap", cleanup: nil),
+              detail: "cap with cleanupPeriodDays", cleanup: nil),
         Known(title: "Codex sessions", path: "~/.codex/sessions", verdict: .review, detail: "session logs", cleanup: nil),
         Known(title: "T3 Code data", path: "~/.t3/userdata", verdict: .keep, detail: "app state and attachments",
               cleanup: nil),

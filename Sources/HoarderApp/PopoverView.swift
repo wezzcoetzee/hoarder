@@ -34,12 +34,12 @@ extension Verdict {
     }
 }
 
-/// Text buttons with a hit area larger than their glyphs.
+/// Text buttons with a hit area larger than their glyphs, at least 24pt tall.
 struct TextButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .padding(.horizontal, 6)
-            .padding(.vertical, 4)
+            .padding(.vertical, 5)
             .contentShape(Rectangle())
             .opacity(configuration.isPressed ? 0.6 : 1)
     }
@@ -51,17 +51,23 @@ struct PopoverView: View {
     @State private var hovered: Finding.ID?
     @State private var confirming: Finding.ID?
     @State private var expanded: Set<HoarderCore.Category> = []
+    @State private var showingKept: Set<HoarderCore.Category> = []
     @State private var listHeight: CGFloat = 0
     private let listCap: CGFloat
 
+    /// Rows a section shows before "N more".
+    private static let visibleRows = 5
+
     /// The optional arguments set the starting state, for `--snapshot`.
     init(monitor: Monitor, hovered: Finding.ID? = nil, confirming: Finding.ID? = nil,
-         expanded: Set<HoarderCore.Category> = [], listCap: CGFloat = 470) {
+         expanded: Set<HoarderCore.Category> = [], showingKept: Set<HoarderCore.Category> = [],
+         listCap: CGFloat = 470) {
         self.monitor = monitor
         self.listCap = listCap
         _hovered = State(initialValue: hovered)
         _confirming = State(initialValue: confirming)
         _expanded = State(initialValue: expanded)
+        _showingKept = State(initialValue: showingKept)
     }
 
     var body: some View {
@@ -86,15 +92,17 @@ struct PopoverView: View {
             }
             footer
         }
-        .frame(width: 370)
+        .frame(width: 400)
         .background(Color.black)
         .foregroundStyle(.white)
         .font(.system(size: 13))
         .preferredColorScheme(.dark)
-        // Closing the popover drops a half-finished confirm, so it never reopens armed.
+        // Closing the popover drops a half-finished confirm, so it never reopens armed, and retires
+        // the success line, which has been seen.
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in
             hovered = nil
             confirming = nil
+            monitor.dismissCleaned()
         }
     }
 
@@ -120,17 +128,18 @@ struct PopoverView: View {
                     }
                 }
             } else {
-                Text("The first scan takes about a minute.").foregroundStyle(Theme.dim)
+                Text("The first scan takes about a minute").foregroundStyle(Theme.dim)
             }
             if let lastCleaned = monitor.lastCleaned {
                 Text(lastCleaned).foregroundStyle(Theme.green)
             }
-            if let snoozedUntil = monitor.alertState.snoozedUntil, monitor.alertState.isSnoozed() {
-                Text("Alert snoozed until \(snoozedUntil.formatted(date: .omitted, time: .shortened)) tomorrow")
+            if monitor.isLow, let snoozedUntil = monitor.alertState.snoozedUntil, monitor.alertState.isSnoozed() {
+                let day = Calendar.current.isDateInToday(snoozedUntil) ? "today" : "tomorrow"
+                Text("Alert snoozed until \(snoozedUntil.formatted(date: .omitted, time: .shortened)) \(day)")
                     .foregroundStyle(Theme.dim)
             }
-            if let appError = monitor.appError {
-                Text(appError).foregroundStyle(Theme.red).fixedSize(horizontal: false, vertical: true)
+            ForEach([monitor.configError, monitor.loginError].compactMap { $0 }, id: \.self) {
+                Text($0).foregroundStyle(Theme.red).fixedSize(horizontal: false, vertical: true)
             }
             ForEach(monitor.report?.notes ?? [], id: \.self) {
                 Text($0).foregroundStyle(Theme.dim).fixedSize(horizontal: false, vertical: true)
@@ -142,26 +151,22 @@ struct PopoverView: View {
 
     private var heading: String {
         guard let disk = monitor.disk else { return "Free space unknown" }
-        let free = "\(gigabytes(disk.free)) free"
-        return monitor.isLow ? "\(free), under your \(monitor.config.alertBelowGB) GB limit" : free
+        return freeSpace(disk.free, limitGB: monitor.config.alertBelowGB, low: monitor.isLow)
     }
 
     // MARK: Sections
 
+    /// Sections with the most that is safe to clean come first, so the top section is where to start.
     private func sections(_ report: Report) -> some View {
         let categories = HoarderCore.Category.allCases
-            .map { ($0, actionableBytes(report, $0)) }
-            .filter { category, _ in report.findings.contains { $0.category == category } }
-            .sorted { $0.1 > $1.1 }
+            .filter { category in report.findings.contains { $0.category == category } }
+            .map { ($0, report.total(.reclaimable, in: $0), report.total(.review, in: $0)) }
+            .sorted { ($0.1, $0.2) > ($1.1, $1.2) }
         return VStack(alignment: .leading, spacing: 0) {
-            ForEach(categories, id: \.0) { category, bytes in
-                section(report, category, bytes)
+            ForEach(categories, id: \.0) { category, safe, review in
+                section(report, category, safe + review)
             }
         }
-    }
-
-    private func actionableBytes(_ report: Report, _ category: HoarderCore.Category) -> Int64 {
-        report.total(.reclaimable, in: category) + report.total(.review, in: category)
     }
 
     @ViewBuilder
@@ -170,7 +175,7 @@ struct PopoverView: View {
         let actionable = rows.filter { $0.verdict != .keep }
         let kept = rows.filter { $0.verdict == .keep }
         let isExpanded = expanded.contains(category)
-        let visible = isExpanded ? actionable : Array(actionable.prefix(5))
+        let visible = isExpanded ? actionable : Array(actionable.prefix(Self.visibleRows))
 
         HStack {
             Text(category.label).font(.system(size: 13, weight: .semibold))
@@ -184,46 +189,75 @@ struct PopoverView: View {
         .padding(.bottom, 3)
         .accessibilityAddTraits(.isHeader)
 
-        ForEach(visible) { finding in
-            FindingRow(finding: finding,
-                       hovered: hovered == finding.id,
-                       confirming: confirming == finding.id,
-                       cleaning: monitor.cleaning.contains(finding.id),
-                       failure: monitor.failures[finding.id],
-                       onActivate: { confirming = confirming == finding.id ? nil : finding.id },
-                       onRun: {
-                           confirming = nil
-                           Task { await monitor.clean(finding) }
-                       },
-                       onCancel: { confirming = nil })
-                .id(finding.id)
-                .onHover { inside in
-                    if inside { hovered = finding.id } else if hovered == finding.id { hovered = nil }
-                }
-        }
+        ForEach(visible) { row($0) }
 
-        if actionable.count > 5 {
-            Button(isExpanded ? "Show fewer" : "\(actionable.count - visible.count) more") {
-                if isExpanded { expanded.remove(category) } else { expanded.insert(category) }
+        if actionable.count > Self.visibleRows {
+            Button {
+                if isExpanded {
+                    expanded.remove(category)
+                    let shown = Set(actionable.prefix(Self.visibleRows).map(\.id))
+                    if let confirming, !shown.contains(confirming), actionable.contains(where: { $0.id == confirming }) {
+                        self.confirming = nil
+                    }
+                } else {
+                    expanded.insert(category)
+                }
+            } label: {
+                Text(isExpanded ? "Show fewer" : "\(actionable.count - visible.count) more")
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(TextButtonStyle())
             .foregroundStyle(Theme.dim)
-            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, FindingRow.textInset - 6)
+            .accessibilityLabel(isExpanded ? "Show fewer in \(category.label)" : "\(actionable.count - visible.count) more in \(category.label)")
         }
 
-        if !kept.isEmpty {
+        if kept.count == 1 {
+            row(kept[0])
+        } else if !kept.isEmpty {
+            keptSummary(report, category, count: kept.count)
+            if showingKept.contains(category) { ForEach(kept) { row($0) } }
+        }
+    }
+
+    private func row(_ finding: Finding) -> some View {
+        FindingRow(finding: finding,
+                   hovered: hovered == finding.id,
+                   confirming: confirming == finding.id,
+                   cleaning: monitor.cleaning.contains(finding.id),
+                   failure: monitor.failures[finding.id],
+                   onActivate: { confirming = confirming == finding.id ? nil : finding.id },
+                   onRun: {
+                       confirming = nil
+                       Task { await monitor.clean(finding) }
+                   },
+                   onCancel: { confirming = nil })
+            .id(finding.id)
+            .onHover { inside in
+                if inside { hovered = finding.id } else if hovered == finding.id { hovered = nil }
+            }
+    }
+
+    /// "5 in use" with their total. Clicking lists them, each with why it is kept.
+    private func keptSummary(_ report: Report, _ category: HoarderCore.Category, count: Int) -> some View {
+        let showing = showingKept.contains(category)
+        return Button {
+            if showing { showingKept.remove(category) } else { showingKept.insert(category) }
+        } label: {
             HStack(spacing: 8) {
                 Dot(verdict: .keep)
-                Text(kept.count == 1 ? kept[0].title : "\(kept.count) in use").lineLimit(1)
+                Text(showing ? "\(count) in use, hide" : "\(count) in use").lineLimit(1)
                 Spacer()
                 Text(formatBytes(report.total(.keep, in: category))).monospacedDigit()
             }
             .foregroundStyle(Theme.dim)
             .padding(.horizontal, 12)
             .padding(.vertical, 4)
-            .accessibilityElement(children: .combine)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(count) in use in \(category.label), \(formatBytes(report.total(.keep, in: category)))")
+        .accessibilityHint(showing ? "Hides them" : "Lists them with why each is kept")
     }
 
     // MARK: Footer
@@ -238,9 +272,11 @@ struct PopoverView: View {
             if monitor.isLow && !monitor.alertState.isSnoozed() {
                 Button("Snooze 1 day") { monitor.snooze() }
             }
-            if !monitor.scanning {
-                Button("Rescan") { Task { await monitor.scan() } }
-            }
+            // Hidden, not removed, while scanning, so nothing slides under the cursor.
+            Button("Rescan") { Task { await monitor.scan() } }
+                .opacity(monitor.scanning ? 0 : 1)
+                .disabled(monitor.scanning)
+                .accessibilityHidden(monitor.scanning)
             Menu {
                 Toggle("Open at login", isOn: Binding(get: { monitor.opensAtLogin }, set: { monitor.setOpensAtLogin($0) }))
                 Button("Edit config") { monitor.editConfig() }
@@ -248,11 +284,13 @@ struct PopoverView: View {
                 Button("Quit Hoarder") { NSApplication.shared.terminate(nil) }
             } label: {
                 Image(systemName: "gearshape")
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 5)
+                    .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
-            .padding(.horizontal, 6)
             .accessibilityLabel("Settings")
         }
         .buttonStyle(TextButtonStyle())
@@ -291,7 +329,8 @@ struct Dot: View {
 }
 
 /// One finding. Clicking it (or hovering, which shows the action) opens a confirmation with the reason
-/// and the exact command before anything runs. A row with nothing to run reveals its files instead.
+/// and the exact command before anything runs. Kept rows, and rows with nothing to run, reveal their
+/// files instead, so a kept row never offers cleaning.
 struct FindingRow: View {
     /// Where row text starts: horizontal padding, dot, spacing. Lines below the title align to it.
     static let textInset: CGFloat = 12 + 7 + 8
@@ -305,26 +344,18 @@ struct FindingRow: View {
     let onRun: () -> Void
     let onCancel: () -> Void
 
+    private var cleanable: Bool { finding.verdict != .keep && finding.cleanup != nil }
+    private var kept: Bool { finding.verdict == .keep }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Button(action: finding.cleanup == nil ? reveal : onActivate) {
-                HStack(spacing: 8) {
-                    Dot(verdict: finding.verdict)
-                    Text("\(finding.title)  \(Text(finding.detail).font(.system(size: 12)).foregroundStyle(Theme.dim))")
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Spacer(minLength: 8)
-                    trailing
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 4)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(cleaning)
-            .help("\(finding.title)\n\(finding.detail)")
-            .accessibilityLabel("\(finding.title), \(finding.verdict.spoken), \(formatBytes(finding.bytes))")
-            .accessibilityHint(finding.detail)
+            Button(action: cleanable ? onActivate : reveal) { line }
+                .buttonStyle(.plain)
+                .allowsHitTesting(!cleaning)
+                .help("\(finding.title)\n\(finding.detail)")
+                .accessibilityLabel("\(finding.title), \(finding.verdict.spoken), \(formatBytes(finding.bytes))")
+                .accessibilityValue(cleaning ? "cleaning" : failure.map { "not cleaned, \($0)" } ?? "")
+                .accessibilityHint(finding.detail + (cleanable ? ". Shows the cleanup command" : ". Shows in Finder"))
 
             if let failure {
                 Text("Not cleaned: \(failure)")
@@ -332,6 +363,8 @@ struct FindingRow: View {
                     .foregroundStyle(Theme.red)
                     .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .help(failure)
                     .padding(.leading, Self.textInset)
                     .padding(.trailing, 12)
                     .padding(.bottom, 4)
@@ -341,17 +374,52 @@ struct FindingRow: View {
         .background(hovered || confirming ? Theme.hover : .clear)
     }
 
+    private var line: some View {
+        HStack(spacing: 8) {
+            Dot(verdict: finding.verdict)
+            HStack(spacing: 6) {
+                // The title gives way in the middle, so a branch keeps its distinctive end.
+                Text(finding.title)
+                    .foregroundStyle(kept ? Theme.dim : .white)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .layoutPriority(1)
+                if !confirming {
+                    Text(finding.detail)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.dim)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 8)
+            trailing
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+    }
+
+    /// The size, or on hover the action. "Clean" is laid out under the size so a cleanable row never
+    /// reflows on hover; "Show in Finder" is too wide to reserve on every row, so it replaces the size.
     @ViewBuilder
     private var trailing: some View {
-        let size = formatBytes(finding.bytes)
-        if cleaning {
-            Text("Cleaning").foregroundStyle(Theme.dim)
-        } else if hovered && !confirming {
-            Text(finding.cleanup == nil ? "Show in Finder" : "Clean \(size)")
-                .foregroundStyle(finding.cleanup == nil ? .white : Theme.green)
-        } else {
-            Text(size).monospacedDigit()
+        let showAction = hovered && !confirming && !cleaning
+        let size = Text(cleaning ? "Cleaning" : formatBytes(finding.bytes))
+            .monospacedDigit()
+            .foregroundStyle(cleaning || kept || finding.bytes == 0 ? Theme.dim : .white)
+        Group {
+            if cleanable {
+                ZStack(alignment: .trailing) {
+                    size.opacity(showAction ? 0 : 1)
+                    Text("Clean").foregroundStyle(Theme.color(finding.verdict)).opacity(showAction ? 1 : 0)
+                }
+            } else if showAction {
+                Text("Show in Finder")
+            } else {
+                size
+            }
         }
+        .accessibilityHidden(true)
     }
 
     private var confirmation: some View {
@@ -367,15 +435,16 @@ struct FindingRow: View {
                     .textSelection(.enabled)
             }
             HStack(spacing: 0) {
-                Button("Run", action: onRun)
-                    .foregroundStyle(finding.verdict == .review ? Theme.amber : Theme.green)
+                Button("Run ↩", action: onRun)
+                    .foregroundStyle(Theme.color(finding.verdict))
                     .keyboardShortcut(.defaultAction)
+                    .accessibilityLabel("Run cleanup for \(finding.title)")
                 Button("Cancel", action: onCancel)
                     .keyboardShortcut(.cancelAction)
                 if !finding.paths.isEmpty { Button("Show in Finder", action: reveal) }
             }
             .buttonStyle(TextButtonStyle())
-            .font(.system(size: 12, weight: .medium))
+            .font(.system(size: 12))
             .padding(.leading, -6)
         }
         .padding(.leading, Self.textInset)
