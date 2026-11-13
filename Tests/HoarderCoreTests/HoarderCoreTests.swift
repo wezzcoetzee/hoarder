@@ -131,3 +131,26 @@ private func finding(_ path: String, _ bytes: Int64) -> Finding {
 func describesSSHFailuresInWordsThatSayWhatToDo(status: Int32, stderr: String, expected: String) {
     #expect(Remote.describe(Shell.Output(status: status, stdout: "", stderr: stderr), host: "box") == expected)
 }
+
+@Test func readsTailnetPeersByTheirMagicDNSName() {
+    let json = Data(#"{"Self": {"DNSName": "me.tail.ts.net."}, "Peer": {"a": {"HostName": "Wes's Mac mini", "DNSName": "wesleys-mac-mini.tail.ts.net.", "OS": "macOS", "Online": true}, "b": {"HostName": "localhost", "DNSName": "phone.tail.ts.net.", "OS": "iOS", "Online": false}}}"#.utf8)
+    #expect(Tailnet.parse(json) == [
+        .init(name: "phone", os: "iOS", online: false),
+        .init(name: "wesleys-mac-mini", os: "macOS", online: true),
+    ])
+    #expect(Tailnet.parse(json)?.filter(\.canScan).map(\.name) == ["wesleys-mac-mini"])
+}
+
+@Test func savesOnlyChangedSettingsAndKeepsUnknownKeys() throws {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("hoarder-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: url) }
+    try Data(#"{"alertBelowGb": 20, "scanEveryMinutes": 30}"#.utf8).write(to: url)
+    var config = Config()
+    config.alertBelowGB = 25
+    config.devices = [Device(host: "homeserver", projectRoots: ["~/development"])]
+    try config.save(to: url)
+    let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any] ?? [:]
+    // scanEveryMinutes went back to its default, so it leaves the file; the misspelling stays.
+    #expect(saved.keys.sorted() == ["alertBelowGB", "alertBelowGb", "devices"])
+    #expect(try JSONDecoder().decode(Config.self, from: Data(contentsOf: url)).devices == config.devices)
+}

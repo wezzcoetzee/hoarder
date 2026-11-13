@@ -78,8 +78,12 @@ That also writes the menu bar label to `/tmp/popover-menubar.png`. Pass `none` i
   "expanded": ["worktree"], "showingKept": ["worktree"],
   "failures": { "worktree:/path": "fatal: …" }, "lastCleaned": "Cleaned …",
   "lastFailed": "Not cleaned: …", "notificationsOff": false, "full": true,
-  "devices": [{ "host": "homeserver", "freeGB": 123, "alertBelowGB": 20, "problem": null }] }
+  "devices": [{ "host": "homeserver", "freeGB": 123, "alertBelowGB": 20, "problem": null,
+                "platform": "linux x86_64", "projectRoots": ["~/development"] }],
+  "settings": "homeserver" }
 ```
+
+`settings` renders the Settings window instead of the popover: `general`, `local` for This Mac, or a device's host.
 
 ## Screenshots
 
@@ -107,7 +111,7 @@ Free space is read every minute (the `df` figure, not Finder's, which counts pur
 
 ## Devices
 
-List other machines under `devices` in the config and the popover gets a strip with each one's free space. Pick one (or ⌘1 to ⌘9) and the list below is that machine's, with the same verdicts, panels and Run.
+List other machines under `devices` in the config and the popover gets a strip with each one's free space. Pick one (or ⌘1 to ⌘9) and the list below is that machine's, with the same verdicts, panels and Run. Add them in Settings, which lists your tailnet's Linux and Mac peers, or under `devices` in the config.
 
 ```mermaid
 sequenceDiagram
@@ -152,7 +156,7 @@ flowchart LR
    "ssh": [{ "action": "accept", "src": ["autogroup:member"], "dst": ["autogroup:self"], "users": ["autogroup:nonroot"] }]
    ```
 4. **Connect once by hand.** `ssh homeserver` from this Mac accepts the host key into `~/.ssh/known_hosts`. Then `ssh -o BatchMode=yes homeserver true` should return with no prompt; if it does, Hoarder can reach it.
-5. **Add it** under `devices` in the config. It appears in the strip within a minute.
+5. **Add it** in Settings with Add from tailnet, or under `devices` in the config. Settings' Test connection runs the same calls a scan starts with and shows the fix if one fails.
 
 If a device shows as unreachable, its header says why:
 
@@ -165,7 +169,11 @@ If a device shows as unreachable, its header says why:
 
 ## Config
 
-`~/.config/hoarder/config.json`, every key optional. The gear menu's Edit config writes the defaults if the file is missing.
+Everything below is editable in Settings (the gear, then Settings…): General holds open at login and the scan intervals, then each machine has its own page with its free-space limit, project folders, a connection test and Remove. Devices are added there from your tailnet peers or by name.
+
+<img src="docs/screenshots/settings.png" alt="Settings window: General and a list of machines on the left, homeserver's page on the right with status, host, its own 20 GB limit, two project folders, Test connection and Remove" width="560">
+
+Settings saves to `~/.config/hoarder/config.json` as you change things, writing only what differs from the defaults. Hand edits still work and apply within a minute. While the file does not parse, Settings shows the error and stays read-only, so it never overwrites what you typed. Every key is optional; Open config.json in General writes the defaults if the file is missing.
 
 ```json
 {

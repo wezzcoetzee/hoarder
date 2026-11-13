@@ -20,6 +20,21 @@ public actor Remote {
     public struct Platform: Sendable, Equatable {
         public let os: String
         public let arch: String
+
+        public init(os: String, arch: String) {
+            self.os = os
+            self.arch = arch
+        }
+
+        /// "Linux x86_64", "macOS arm64".
+        public var label: String {
+            let name = switch os {
+            case "darwin": "macOS"
+            case "linux": "Linux"
+            default: os
+            }
+            return "\(name) \(arch)"
+        }
     }
 
     public struct Failure: Error, Sendable, Equatable {
@@ -74,6 +89,14 @@ public actor Remote {
         let detected = Platform(os: parts[0], arch: parts[1])
         platform = detected
         return detected
+    }
+
+    /// Where `ssh` really connects, when a Host entry in ~/.ssh/config points the name elsewhere.
+    public nonisolated func resolvedHostName() async -> String? {
+        let output = await Shell.run("ssh", ["-G", "--", host], timeout: 10)
+        let name = output.stdout.split(separator: "\n").first { $0.hasPrefix("hostname ") }
+            .map { String($0.dropFirst("hostname ".count)) }
+        return name.flatMap { $0.caseInsensitiveCompare(host) == .orderedSame ? nil : $0 }
     }
 
     // MARK: Running hoarder there

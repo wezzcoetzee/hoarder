@@ -44,6 +44,32 @@ public struct Config: Codable, Sendable {
         return file.keys.filter { known[$0] == nil }.sorted()
     }
 
+    /// Writes the settings that differ from the defaults, so the file stays short and a changed default
+    /// still reaches anyone who never touched that setting. Keys Config does not know are left as they
+    /// are, so a misspelling stays visible instead of being silently dropped.
+    public func save(to url: URL = fileURL) throws {
+        var file = (try? Data(contentsOf: url))
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        let mine = try Self.object(self), defaults = try Self.object(Config())
+        for (key, value) in mine {
+            file[key] = try Self.same(value, defaults[key]) ? nil : value
+        }
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: file, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+            .write(to: url, options: .atomic)
+    }
+
+    private static func object(_ config: Config) throws -> [String: Any] {
+        try JSONSerialization.jsonObject(with: JSONEncoder().encode(config)) as? [String: Any] ?? [:]
+    }
+
+    /// JSON values compared by their serialized form, which works the same on macOS and Linux.
+    private static func same(_ a: Any, _ b: Any?) throws -> Bool {
+        guard let b else { return false }
+        let encode = { try JSONSerialization.data(withJSONObject: ["v": $0], options: .sortedKeys) }
+        return try encode(a) == encode(b)
+    }
+
     /// Writes the defaults so there is a file to edit. Leaves an existing file alone.
     public static func writeDefaultsIfMissing() throws {
         guard !exists(fileURL.path) else { return }

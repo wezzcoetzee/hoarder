@@ -16,6 +16,8 @@ final class Monitor {
     /// Shown in the header. Kept apart, because config is re-read every minute and must not wipe a
     /// login error.
     private(set) var configError: String?
+    /// config.json does not parse, so Settings stays read-only rather than overwrite the hand edit.
+    private(set) var configInvalid = false
     private(set) var loginError: String?
     /// The user turned Hoarder's notifications off, so low-disk alerts cannot arrive.
     private(set) var notificationsOff = false
@@ -66,6 +68,40 @@ final class Monitor {
         opensAtLogin = SMAppService.mainApp.status == .enabled
     }
 
+    /// Every Settings control goes through here: it writes config.json and applies it at once.
+    func updateConfig(_ change: (inout Config) -> Void) {
+        guard !configInvalid else { return }
+        var next = config
+        change(&next)
+        do {
+            try next.save()
+            loadConfig()
+        } catch {
+            configError = "Could not save config.json: \(error.localizedDescription)"
+        }
+    }
+
+    /// An empty folder list means the device uses its own config, so it is not stored as `[]`.
+    func updateDevice(_ host: String, _ change: (inout Device) -> Void) {
+        updateConfig { config in
+            guard let index = config.devices.firstIndex(where: { $0.host == host }) else { return }
+            change(&config.devices[index])
+            if config.devices[index].projectRoots?.isEmpty == true { config.devices[index].projectRoots = nil }
+        }
+    }
+
+    func addDevice(_ host: String) {
+        let host = host.trimmingCharacters(in: .whitespaces)
+        guard !host.isEmpty, !host.hasPrefix("-"), !config.devices.contains(where: { $0.host == host }) else { return }
+        updateConfig { $0.devices.append(Device(host: host)) }
+        // Scanned now rather than on the next minute's tick, so Settings shows its status right away.
+        if let machine = machines.first(where: { $0.id == host }) { Task { await machine.scan() } }
+    }
+
+    func removeDevice(_ host: String) {
+        updateConfig { $0.devices.removeAll { $0.host == host } }
+    }
+
     func editConfig() {
         do {
             try Config.writeDefaultsIfMissing()
@@ -100,8 +136,10 @@ final class Monitor {
             let unknown = (try? Data(contentsOf: Config.fileURL)).map(Config.unknownKeys) ?? []
             configError = unknown.isEmpty ? nil
                 : "config.json: unknown \(unknown.count == 1 ? "key" : "keys") \(unknown.joined(separator: ", "))"
+            configInvalid = false
         } catch {
             configError = Self.describe(error) + ", using defaults"
+            configInvalid = true
         }
         syncMachines()
     }

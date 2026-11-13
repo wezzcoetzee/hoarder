@@ -32,6 +32,10 @@ struct HoarderApp: App {
             MenuBarLabel(monitor: monitor)
         }
         .menuBarExtraStyle(.window)
+
+        Settings {
+            SettingsView(monitor: monitor)
+        }
     }
 }
 

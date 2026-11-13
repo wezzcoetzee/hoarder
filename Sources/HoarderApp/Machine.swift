@@ -31,7 +31,9 @@ final class Machine: Identifiable {
     private(set) var lastFailed: String?
     private var lastFailedID: Finding.ID?
     /// Docker prunes free space inside a VM disk on macOS, and on the disk itself on Linux.
-    private(set) var dockerInVM = true
+    var dockerInVM: Bool { platform.map { $0.os == "darwin" } ?? true }
+    /// Learned on the first scan or connection test; this Mac's is known up front.
+    private(set) var platform: Remote.Platform?
     /// Why the device could not be reached, or its scan not read. The last report stays shown.
     var problem: String? { connectionProblem ?? scanProblem }
     private var connectionProblem: String?
@@ -52,6 +54,7 @@ final class Machine: Identifiable {
         remote = nil
         alertState = Self.loadAlertState(id: Self.localID)
         disk = DiskSpace.current()
+        platform = Remote.Platform(os: "darwin", arch: Self.arch)
     }
 
     init(device: Device, build: Remote.Build) {
@@ -66,7 +69,7 @@ final class Machine: Identifiable {
     /// A still machine for `--snapshot`: shows the given state, never scans, alerts or cleans.
     init(preview host: String?, report: Report?, disk: DiskSpace?, config: Config, alertState: AlertState,
          scanning: Bool, cleaning: [Finding.ID: String], failures: [Finding.ID: String], lastCleaned: String?,
-         lastFailed: String?, problem: String?) {
+         lastFailed: String?, problem: String?, platform: Remote.Platform? = nil) {
         id = host ?? Self.localID
         name = host ?? "This Mac"
         self.host = host
@@ -81,6 +84,32 @@ final class Machine: Identifiable {
         self.lastCleaned = lastCleaned
         self.lastFailed = lastFailed
         connectionProblem = problem
+        self.platform = platform ?? (host == nil ? Remote.Platform(os: "darwin", arch: Self.arch) : nil)
+    }
+
+    private static var arch: String {
+        #if arch(arm64)
+        "arm64"
+        #else
+        "x86_64"
+        #endif
+    }
+
+    /// Where the device's SSH Host entry really points, for Settings; nil for this Mac or a plain name.
+    func resolvedHostName() async -> String? {
+        await remote?.resolvedHostName()
+    }
+
+    /// What Settings' Test connection runs: the same platform and free-space calls a scan starts with.
+    func testConnection() async {
+        guard let remote else { return await refreshDisk() }
+        do {
+            platform = try await remote.detectPlatform()
+        } catch {
+            connectionProblem = error.message
+            return
+        }
+        await refreshDisk()
     }
 
     var alertBelowGB: Int { config.alertBelowGB(for: device) }
@@ -102,7 +131,7 @@ final class Machine: Identifiable {
         let fresh: Report
         if let remote {
             do {
-                dockerInVM = try await remote.detectPlatform().os == "darwin"
+                platform = try await remote.detectPlatform()
                 fresh = try await remote.scan(roots: device?.projectRoots)
                 connectionProblem = nil
                 scanProblem = nil

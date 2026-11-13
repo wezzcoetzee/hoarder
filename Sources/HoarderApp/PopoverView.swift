@@ -51,6 +51,7 @@ struct TextButtonStyle: ButtonStyle {
 /// Layout A (one ledger grouped by category) with C's free-space heading and snooze.
 struct PopoverView: View {
     let monitor: Monitor
+    @Environment(\.openSettings) private var openSettings
     @State private var hovered: Finding.ID?
     @State private var confirming: Finding.ID?
     /// "Clean all safe" was pressed and waits for Run.
@@ -485,9 +486,12 @@ struct PopoverView: View {
                     .accessibilityHidden(!machine.scanning)
             }
             Menu {
-                Button("Alert under \(machine.alertBelowGB) GB") {}.disabled(true)
-                Toggle("Open at login", isOn: Binding(get: { monitor.opensAtLogin }, set: { monitor.setOpensAtLogin($0) }))
-                Button("Edit config") { monitor.editConfig() }
+                // A menu bar app is never frontmost, so the window would open behind the others.
+                Button("Settings…") {
+                    NSApp.activate(ignoringOtherApps: true)
+                    openSettings()
+                }
+                .keyboardShortcut(",")
                 Divider()
                 Button("Quit Hoarder") { NSApplication.shared.terminate(nil) }
             } label: {
