@@ -1,4 +1,26 @@
-{ "freeGB": 22, "alertBelowGB": 40, "full": true,
-  "showingKept": ["worktree", "nodeModules"], "expanded": ["cache"],
+{
+  "freeGB": 22,
+  "alertBelowGB": 40,
+  "full": true,
+  "showingKept": [
+    "worktree",
+    "nodeModules"
+  ],
+  "expanded": [
+    "cache"
+  ],
   "cleaning": "cache:/Users/dev/Library/Developer/Xcode/DerivedData",
-  "lastCleaned": "Cleaned worktree storefront · feat/old-nav, 1.2 GB" }
+  "lastCleaned": "Cleaned worktree storefront · feat/old-nav, 1.2 GB",
+  "devices": [
+    {
+      "host": "homeserver",
+      "freeGB": 123,
+      "alertBelowGB": 20,
+      "platform": "linux x86_64"
+    },
+    {
+      "host": "mac-mini",
+      "problem": "Host key not trusted, run ssh mac-mini once to accept it"
+    }
+  ]
+}
