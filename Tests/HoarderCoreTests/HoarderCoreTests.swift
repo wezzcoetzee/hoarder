@@ -55,6 +55,36 @@ func forcesWorktreeRemovalOnlyPastWhatTheScanSaw(present: Bool, locked: Bool, di
     #expect(DockerScanner.parseSize("garbage") == nil)
 }
 
+@Test(arguments: [
+    // volume, links, expected verdict and command (nil verdict: no row)
+    ("infrastructure_registry-data", "0", Optional(Verdict.keep), String?.none),
+    ("buildx_buildkit_ci-release0_state", "1", .keep, "docker buildx prune --builder ci-release -f"),
+    ("buildx_buildkit_gone-checks0_state", "0", .review, "docker volume rm buildx_buildkit_gone-checks0_state"),
+    ("buildx_buildkit_gone-checks0_state", "1", .keep, nil),
+    ("postgres-data", "1", nil, nil),
+    ("old-data", "0", .review, "docker volume rm old-data"),
+])
+func judgesVolumesByOwner(name: String, links: String, verdict: Verdict?, command: String?) {
+    let volume = DockerScanner.Volume(name: name, size: "3GB", links: links)
+    let row = DockerScanner.classify(volume, builderNodes: ["ci-release0": "ci-release"],
+                                     registryVolumes: ["infrastructure_registry-data"])
+    #expect(row?.verdict == verdict)
+    #expect(row?.cleanup == command)
+}
+
+@Test func neverOffersBuildKitVolumesWhenBuildersAreUnknown() {
+    let volume = DockerScanner.Volume(name: "buildx_buildkit_gone0_state", size: "3GB", links: "0")
+    let row = DockerScanner.classify(volume, builderNodes: nil, registryVolumes: [])
+    #expect(row?.verdict == .keep && row?.cleanup == nil)
+}
+
+@Test func findsTmpfsByTheMountInEffect() {
+    let mounts = "/dev/sda1 / ext4 rw 0 0\n/dev/sda2 /tmp ext4 rw 0 0\ntmpfs /tmp tmpfs rw,nosuid 0 0\ntmpfs /run tmpfs rw 0 0\n"
+    #expect(CacheScanner.isTmpfs("/tmp", mounts: mounts))
+    #expect(!CacheScanner.isTmpfs("/", mounts: mounts))
+    #expect(!CacheScanner.isTmpfs("/var/tmp", mounts: mounts))
+}
+
 private func finding(_ path: String, _ bytes: Int64) -> Finding {
     Finding(category: .worktree, title: path, detail: "", paths: [path], bytes: bytes, lastActivity: nil,
             verdict: .reclaimable, cleanup: nil)

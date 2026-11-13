@@ -58,6 +58,26 @@ enum CacheScanner {
             guard let bytes = sizes[path], bytes > 0 else { return nil }
             return Finding(category: .cache, title: known.title, detail: known.detail, paths: [path],
                            bytes: bytes, lastActivity: nil, verdict: known.verdict, cleanup: known.cleanup)
-        }
+        } + [memoryBackedTmp()].compactMap { $0 }
+    }
+
+    /// /tmp on tmpfs lives in RAM and swap, so clearing it frees memory, not the disk Hoarder watches. It is
+    /// kept, so its size shows without counting toward what cleaning frees, and has no command because
+    /// other programs' live files sit beside the stale ones. Its used space comes from the mount, not du,
+    /// which cannot read other users' files.
+    private static func memoryBackedTmp() -> Finding? {
+        guard let mounts = try? String(contentsOfFile: "/proc/mounts", encoding: .utf8),
+              isTmpfs("/tmp", mounts: mounts),
+              let space = DiskSpace.current(volume: "/tmp"), space.total > space.free else { return nil }
+        return Finding(category: .cache, title: "/tmp", detail: "tmpfs: frees RAM and swap, not disk",
+                       paths: ["/tmp"], bytes: space.total - space.free, lastActivity: nil, verdict: .keep,
+                       cleanup: nil)
+    }
+
+    /// Reads `/proc/mounts`: device, mount point, type, … per line. The last mount at a point is the one in effect.
+    static func isTmpfs(_ mountPoint: String, mounts: String) -> Bool {
+        let types = mounts.split(separator: "\n").map { $0.split(separator: " ") }
+            .filter { $0.count > 2 && $0[1] == mountPoint }.map { $0[2] }
+        return types.last == "tmpfs"
     }
 }
