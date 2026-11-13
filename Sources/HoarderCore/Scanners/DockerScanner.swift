@@ -25,7 +25,7 @@ enum DockerScanner {
         "Build Cache": Prune(title: "Build cache", verdict: .reclaimable, command: "docker builder prune -f",
                              why: "rebuilt on next build"),
         "Containers": Prune(title: "Stopped containers", verdict: .reclaimable, command: "docker container prune -f",
-                            why: "container files go, images stay"),
+                            why: "files go, images stay"),
         "Images": Prune(title: "Unused images", verdict: .review, command: "docker image prune -a -f",
                         why: "re-pulled on demand"),
         "Local Volumes": Prune(title: "Unused volumes", verdict: .review, command: "docker volume prune -f",
@@ -46,7 +46,7 @@ enum DockerScanner {
     static func scan() async -> (findings: [Finding], daemonDown: Bool) {
         let sizes = await Shell.sizes(of: vmDisks.map(\.1))
         let disks = vmDisks.map { title, path in
-            Finding(category: .docker, title: title, detail: "holds every image, volume and cache below",
+            Finding(category: .docker, title: title, detail: "holds Docker's images and volumes",
                     paths: [path], bytes: sizes[path] ?? 0, lastActivity: nil, verdict: .keep, cleanup: nil)
         }
 

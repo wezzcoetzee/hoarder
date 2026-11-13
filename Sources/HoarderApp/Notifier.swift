@@ -26,10 +26,7 @@ enum Notifier {
     static func lowDisk(free: Int64, limitGB: Int, report: Report?) {
         guard available else { return }
         let title = freeSpace(free, limitGB: limitGB, low: true)
-        var body = "Open Hoarder to see what can go."
-        if let report, let biggest = report.findings.first(where: { $0.verdict == .reclaimable }) {
-            body = "\(formatBytes(report.total(.reclaimable))) is safe to clean. Biggest: \(biggest.fullName), \(formatBytes(biggest.bytes))."
-        }
+        let body = report.map(suggestion) ?? "Open Hoarder to see what can go."
         Task {
             let content = UNMutableNotificationContent()
             content.title = title
@@ -56,6 +53,17 @@ extension Finding {
 /// The one free-space sentence: popover heading, notification title, and the menu bar's spoken label.
 func freeSpace(_ free: Int64, limitGB: Int, low: Bool) -> String {
     low ? "\(gigabytes(free)) free, under your \(limitGB) GB limit" : "\(gigabytes(free)) free"
+}
+
+/// What to clean first. A Docker prune frees space inside Docker's disk rather than on the Mac, so
+/// the biggest other row is named when there is one. Findings are sorted largest first.
+private func suggestion(_ report: Report) -> String {
+    let safe = report.findings.filter { $0.verdict == .reclaimable }
+    if let biggest = safe.first(where: { $0.category != .docker }) ?? safe.first {
+        return "\(formatBytes(report.total(.reclaimable))) is safe to clean. Biggest: \(biggest.fullName), \(formatBytes(biggest.bytes))."
+    }
+    let review = report.total(.review)
+    return review > 0 ? "Nothing is safe to clean. \(formatBytes(review)) to review." : "Nothing to clean right now."
 }
 
 /// Without this, macOS hides the banner while the popover is open, because the app is frontmost then.

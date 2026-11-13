@@ -19,10 +19,12 @@ enum NodeModulesScanner {
             let activity = lastActivity(of: project)
             let idle = activity.map { days(since: $0) } ?? 0
             let verdict: Verdict = idle >= config.idleNodeModulesDays ? .reclaimable : .keep
-            let pnpm = folders.contains { exists($0 + "/.pnpm") } ? ", pnpm store links" : ""
+            // pnpm links into a shared store, so du counts bytes that deleting does not free.
+            let pnpm = folders.contains { exists($0 + "/.pnpm") } ? ", pnpm, frees less than shown" : ""
+            let age = idle == 0 ? "used today" : "idle \(idle)d"
             let count = folders.count == 1 ? "1 folder" : "\(folders.count) folders"
             return Finding(category: .nodeModules, title: displayName(project, roots: roots),
-                           detail: "\(count), idle \(idle)d\(pnpm)", paths: folders.sorted(), bytes: bytes,
+                           detail: "\(count), \(age)\(pnpm)", paths: folders.sorted(), bytes: bytes,
                            lastActivity: activity, verdict: verdict,
                            cleanup: "rm -rf " + folders.sorted().map(shellQuote).joined(separator: " "))
         }

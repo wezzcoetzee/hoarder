@@ -165,16 +165,29 @@ final class Monitor {
             configError = unknown.isEmpty ? nil
                 : "config.json: unknown \(unknown.count == 1 ? "key" : "keys") \(unknown.joined(separator: ", "))"
         } catch {
-            configError = "config.json \(Self.describe(error)), using defaults"
+            configError = Self.describe(error) + ", using defaults"
         }
     }
 
+    /// A config error in the words of the file, not of Swift's decoder.
     private static func describe(_ error: Error) -> String {
+        let key = { (context: DecodingError.Context) in context.codingPath.map(\.stringValue).joined(separator: ".") }
         switch error {
         case DecodingError.typeMismatch(let type, let context):
-            "has the wrong type for \(context.codingPath.map(\.stringValue).joined(separator: ".")), expected \(type)"
+            return "config.json: \(key(context)) should be \(kind(type))"
+        case DecodingError.dataCorrupted(let context) where !context.codingPath.isEmpty:
+            return "config.json: \(key(context)) has a bad value"
         default:
-            "is not valid JSON"
+            return "config.json is not valid JSON"
+        }
+    }
+
+    private static func kind(_ type: Any.Type) -> String {
+        switch type {
+        case is Int.Type: "a whole number"
+        case is [String].Type: "a list of folders"
+        case is String.Type: "text"
+        default: "a different kind of value"
         }
     }
 

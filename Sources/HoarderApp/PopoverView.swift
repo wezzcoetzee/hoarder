@@ -13,8 +13,8 @@ enum Theme {
     static let line = Color(white: 0.15)
     static let hover = Color(white: 0.1)
     /// Darker tints for the menu bar label when the menu bar is light.
-    static let amberOnLight = Color(red: 0.6, green: 0.38, blue: 0.0)
-    static let redOnLight = Color(red: 0.75, green: 0.13, blue: 0.1)
+    static let amberOnLight = Color(red: 0.5, green: 0.3, blue: 0.0)
+    static let redOnLight = Color(red: 0.62, green: 0.08, blue: 0.06)
 
     static func color(_ verdict: Verdict) -> Color {
         switch verdict {
@@ -89,8 +89,11 @@ struct PopoverView: View {
                     .onChange(of: confirming, initial: true) { _, id in
                         if let id { proxy.scrollTo(id) }
                     }
-                    // A new scan can change or reclassify the row a panel was opened on.
-                    .onChange(of: report.scannedAt) { confirming = nil }
+                    // A new scan can drop or reclassify the row a panel was opened on; close it then.
+                    .onChange(of: report.scannedAt) {
+                        let row = report.findings.first { $0.id == confirming }
+                        if row == nil || row?.verdict == .keep { confirming = nil }
+                    }
                 }
                 Theme.line.frame(height: 1)
             }
@@ -116,6 +119,7 @@ struct PopoverView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(heading)
                 .font(.system(size: 16, weight: .semibold))
+                .accessibilityAddTraits(.isHeader)
                 .foregroundStyle(monitor.isCritical ? Theme.red : monitor.isLow ? Theme.amber : .white)
             if let report = monitor.report {
                 let totals = [Verdict.reclaimable, .review].map { ($0, report.total($0)) }.filter { $0.1 > 0 }
@@ -126,7 +130,8 @@ struct PopoverView: View {
                         ForEach(totals, id: \.0) { verdict, bytes in
                             HStack(spacing: 5) {
                                 Dot(verdict: verdict)
-                                Text("\(formatBytes(bytes)) \(Text(verdict.spoken).foregroundStyle(Theme.dim))").monospacedDigit()
+                                Text("\(Text(formatBytes(bytes)).font(.system(size: 13))) \(Text(verdict.spoken).foregroundStyle(Theme.dim))")
+                                    .monospacedDigit()
                             }
                         }
                     }
@@ -143,9 +148,12 @@ struct PopoverView: View {
                     .foregroundStyle(Theme.dim)
             }
             if monitor.isLow && monitor.notificationsOff {
-                Button("Notifications are off for Hoarder. Open Settings") { NSWorkspace.shared.open(Notifier.settingsURL) }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Theme.dim)
+                HStack(spacing: 0) {
+                    Text("Notifications are off").foregroundStyle(Theme.dim)
+                    Button("Open Settings") { NSWorkspace.shared.open(Notifier.settingsURL) }
+                        .buttonStyle(TextButtonStyle())
+                }
+                .padding(.vertical, -5)
             }
             ForEach([monitor.configError, monitor.loginError].compactMap { $0 }, id: \.self) {
                 Text($0).foregroundStyle(Theme.red).fixedSize(horizontal: false, vertical: true)
@@ -279,7 +287,7 @@ struct PopoverView: View {
             .padding(.leading, 6)
             Spacer(minLength: 8)
             // Only once an alert was sent: before that there is nothing to snooze.
-            if monitor.isLow && monitor.alertState.alerted && !monitor.alertState.isSnoozed() {
+            if monitor.isLow && monitor.alertState.alerted && !monitor.alertState.isSnoozed() && !monitor.notificationsOff {
                 Button("Snooze 1 day") { monitor.snooze() }
                     .accessibilityLabel("Snooze low-disk alert for 1 day")
             }
@@ -291,10 +299,13 @@ struct PopoverView: View {
                     .accessibilityHidden(monitor.scanning)
                 Text("Scanning")
                     .foregroundStyle(Theme.dim)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 5)
                     .opacity(monitor.scanning ? 1 : 0)
                     .accessibilityHidden(!monitor.scanning)
             }
             Menu {
+                Button("Alert under \(monitor.config.alertBelowGB) GB") {}.disabled(true)
                 Toggle("Open at login", isOn: Binding(get: { monitor.opensAtLogin }, set: { monitor.setOpensAtLogin($0) }))
                 Button("Edit config") { monitor.editConfig() }
                 Divider()
@@ -350,8 +361,6 @@ struct Dot: View {
 struct FindingRow: View {
     /// Where row text starts: horizontal padding, dot, spacing. Lines below the title align to it.
     static let textInset: CGFloat = 12 + 7 + 8
-    /// Below this much room the reason moves under the title instead of showing as a stub.
-    private static let minimumReasonWidth: CGFloat = 110
     private static let commandCap: CGFloat = 120
 
     let finding: Finding
@@ -375,9 +384,9 @@ struct FindingRow: View {
                 .buttonStyle(.plain)
                 .allowsHitTesting(!cleaning)
                 .help("\(finding.title)\n\(finding.detail)")
-                .accessibilityLabel("\(finding.title), \(finding.verdict.spoken), \(formatBytes(finding.bytes))")
+                .accessibilityLabel("\(finding.title), \(finding.verdict.spoken), \(formatBytes(finding.bytes)), \(finding.detail)")
                 .accessibilityValue(cleaning ? "cleaning" : failure.map { "not cleaned, \($0)" } ?? "")
-                .accessibilityHint(cleanable ? "Shows the reason and cleanup command" : "Shows the reason")
+                .accessibilityHint(cleanable ? "Shows the cleanup command" : "Shows where it is")
 
             if let failure {
                 Text("Not cleaned: \(failure)")
@@ -402,11 +411,11 @@ struct FindingRow: View {
                 if confirming {
                     title.lineLimit(2)
                 } else {
-                    // The reason sits beside the title when enough of it fits, otherwise under it.
+                    // The reason shows whole: beside the title when it fits, otherwise under it.
                     ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 6) {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
                             title.fixedSize()
-                            reason.frame(idealWidth: Self.minimumReasonWidth, alignment: .leading)
+                            reason.fixedSize()
                         }
                         VStack(alignment: .leading, spacing: 1) {
                             title.lineLimit(1)
@@ -463,6 +472,12 @@ struct FindingRow: View {
                     .font(.system(size: 12))
                     .foregroundStyle(Theme.dim)
             }
+            if cleanable, finding.category == .docker {
+                Text("Frees space inside Docker's disk; the Mac gets it back as the VM trims")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if cleanable, let command = finding.cleanup {
                 // A many-folder command scrolls in a capped box, so Run stays in view.
                 ScrollView {
@@ -477,7 +492,9 @@ struct FindingRow: View {
                 .frame(height: min(commandHeight, Self.commandCap))
             }
             HStack(spacing: 0) {
-                if cleanable {
+                if cleaning {
+                    Text("Cleaning").foregroundStyle(Theme.dim).padding(.horizontal, 6).padding(.vertical, 5)
+                } else if cleanable {
                     Button("Run ↩", action: onRun)
                         .foregroundStyle(Theme.color(finding.verdict))
                         .keyboardShortcut(.defaultAction)
@@ -503,6 +520,8 @@ struct FindingRow: View {
     }
 
     private func reveal() {
-        NSWorkspace.shared.activateFileViewerSelecting(finding.paths.map { URL(fileURLWithPath: $0) })
+        // One item: a many-folder row would otherwise open a Finder window per folder.
+        guard let first = finding.paths.first else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: first)])
     }
 }

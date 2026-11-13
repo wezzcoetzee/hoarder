@@ -33,8 +33,8 @@ enum CacheScanner {
               detail: regenerable, cleanup: "rm -rf ~/Library/Caches/ms-playwright"),
         Known(title: "uv cache", path: "~/.cache/uv", verdict: .review, detail: regenerable, cleanup: "uv cache clean"),
         Known(title: "Claude Code transcripts", path: "~/.claude/projects", verdict: .review,
-              detail: "cap with cleanupPeriodDays", cleanup: nil),
-        Known(title: "Codex sessions", path: "~/.codex/sessions", verdict: .review, detail: "session logs", cleanup: nil),
+              detail: "set cleanupPeriodDays in ~/.claude/settings.json", cleanup: nil),
+        Known(title: "Codex sessions", path: "~/.codex/sessions", verdict: .review, detail: "old session logs, delete by hand", cleanup: nil),
         Known(title: "T3 Code data", path: "~/.t3/userdata", verdict: .keep, detail: "app state and attachments",
               cleanup: nil),
     ]
