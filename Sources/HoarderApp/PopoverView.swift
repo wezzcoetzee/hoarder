@@ -55,6 +55,8 @@ struct PopoverView: View {
     @State private var confirming: Finding.ID?
     /// The open row's verdict and command when it was opened, to notice a scan changing them.
     @State private var confirmedAs: String?
+    /// A panel just opened and should be scrolled into view once the list has grown to fit it.
+    @State private var revealPending = false
     @State private var expanded: Set<HoarderCore.Category> = []
     @State private var showingKept: Set<HoarderCore.Category> = []
     @State private var listHeight: CGFloat = 0
@@ -71,6 +73,7 @@ struct PopoverView: View {
         self.listCap = listCap
         _hovered = State(initialValue: hovered)
         _confirming = State(initialValue: confirming)
+        _revealPending = State(initialValue: confirming != nil)
         _expanded = State(initialValue: expanded)
         _showingKept = State(initialValue: showingKept)
     }
@@ -93,9 +96,12 @@ struct PopoverView: View {
                         // On the next turn, once the panel has its height, so Run lands in view.
                         if let id { DispatchQueue.main.async { proxy.scrollTo(id) } }
                     }
-                    // And again once the list has grown by the panel, which is when its height is final.
+                    // And once more when the list has grown by the panel, which is when its height is
+                    // final. Only once, so expanding a section later never jumps back to the panel.
                     .onChange(of: listHeight) {
-                        if let confirming { proxy.scrollTo(confirming) }
+                        guard revealPending, let confirming else { return }
+                        proxy.scrollTo(confirming)
+                        revealPending = false
                     }
                     // A new scan can drop the row a panel was opened on, or change its verdict or
                     // command; close the panel then, so Run never acts on what was not shown.
@@ -147,6 +153,9 @@ struct PopoverView: View {
                 }
             } else {
                 Text("The first scan takes about a minute").foregroundStyle(Theme.dim)
+            }
+            ForEach(monitor.report?.findings.filter { monitor.cleaning.contains($0.id) } ?? []) {
+                Text("Cleaning \($0.fullName)").foregroundStyle(Theme.dim)
             }
             if let lastCleaned = monitor.lastCleaned {
                 Text(lastCleaned).foregroundStyle(Theme.green)
@@ -230,12 +239,19 @@ struct PopoverView: View {
                     expanded.insert(category)
                 }
             } label: {
-                Text(isExpanded ? "Show fewer" : "\(actionable.count - visible.count) more")
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack {
+                    Text(isExpanded ? "Show fewer" : "\(actionable.count - visible.count) more")
+                    Spacer()
+                    if !isExpanded {
+                        Text(formatBytes(actionable.dropFirst(Self.visibleRows).reduce(0) { $0 + $1.bytes }))
+                            .monospacedDigit()
+                    }
+                }
             }
             .buttonStyle(TextButtonStyle())
             .foregroundStyle(Theme.dim)
             .padding(.leading, FindingRow.textInset - 6)
+            .padding(.trailing, 6)
             .accessibilityLabel(isExpanded ? "Show fewer in \(category.label)" : "\(actionable.count - visible.count) more in \(category.label)")
         }
 
@@ -259,6 +275,7 @@ struct PopoverView: View {
                        } else {
                            confirming = finding.id
                            confirmedAs = Self.signature(finding)
+                           revealPending = true
                        }
                    },
                    onRun: {
@@ -310,6 +327,8 @@ struct PopoverView: View {
             // Only once an alert was sent: before that there is nothing to snooze.
             if monitor.isLow && monitor.alertState.alerted && !monitor.alertState.isSnoozed() && !monitor.notificationsOff {
                 Button("Snooze 1 day") { monitor.snooze() }
+                    .keyboardShortcut("s")
+                    .help("Snooze the low-disk alert for 1 day (⌘S)")
                     .accessibilityLabel("Snooze low-disk alert for 1 day")
                     .accessibilityInputLabels(["Snooze"])
             }
@@ -317,6 +336,7 @@ struct PopoverView: View {
             ZStack {
                 Button("Rescan") { Task { await monitor.scan() } }
                     .keyboardShortcut("r")
+                    .help("Rescan (⌘R)")
                     .opacity(monitor.scanning ? 0 : 1)
                     .disabled(monitor.scanning)
                     .accessibilityHidden(monitor.scanning)
@@ -417,6 +437,7 @@ struct FindingRow: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
                     .help(failure)
+                    .accessibilityHidden(true)
                     .padding(.leading, Self.textInset)
                     .padding(.trailing, 12)
                     .padding(.bottom, 4)
@@ -465,7 +486,7 @@ struct FindingRow: View {
     private var reason: some View {
         Text(cleaning ? "Cleaning" : finding.detail)
             .font(.system(size: 12))
-            .foregroundStyle(Theme.dim)
+            .foregroundStyle(cleaning ? Theme.color(finding.verdict) : Theme.dim)
     }
 
     /// The size, or "Clean" on hover over a cleanable row, laid out under the size so the row never
@@ -495,7 +516,7 @@ struct FindingRow: View {
                     .foregroundStyle(Theme.dim)
             }
             if cleanable, finding.category == .docker {
-                Text("Frees space inside Docker's disk; the Mac gets it back as the VM trims")
+                Text("Frees space in Docker's disk; the Mac gets it back later")
                     .font(.system(size: 12))
                     .foregroundStyle(Theme.dim)
                     .fixedSize(horizontal: false, vertical: true)
@@ -533,10 +554,11 @@ struct FindingRow: View {
             .buttonStyle(TextButtonStyle())
             .font(.system(size: 12))
             .padding(.leading, -6)
+            .padding(.top, -3)
         }
         .padding(.leading, Self.textInset)
         .padding(.trailing, 12)
-        .padding(.bottom, 8)
+        .padding(.bottom, 4)
         .onAppear { panelFocused = true }
     }
 

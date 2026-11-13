@@ -60,7 +60,9 @@ func freeSpace(_ free: Int64, limitGB: Int, low: Bool) -> String {
 private func suggestion(_ report: Report) -> String {
     let safe = report.findings.filter { $0.verdict == .reclaimable }
     if let biggest = safe.first(where: { $0.category != .docker }) ?? safe.first {
-        return "\(formatBytes(report.total(.reclaimable))) is safe to clean. Biggest: \(biggest.fullName), \(formatBytes(biggest.bytes))."
+        let docker = report.total(.reclaimable, in: .docker)
+        let inside = docker > 0 ? " (\(formatBytes(docker)) inside Docker's disk)" : ""
+        return "\(formatBytes(report.total(.reclaimable))) is safe to clean\(inside). Biggest: \(biggest.fullName), \(formatBytes(biggest.bytes))."
     }
     let review = report.total(.review)
     return review > 0 ? "Nothing is safe to clean. \(formatBytes(review)) to review." : "Nothing to clean right now."

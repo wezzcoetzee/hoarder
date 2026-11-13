@@ -83,9 +83,10 @@ final class Monitor {
             report = report?.removing(finding)
             if scanning { cleanedDuringScan.insert(finding.id) }
             // Docker frees space inside its VM disk; the Mac gets it back only after the VM trims.
-            let message = finding.category == .docker
-                ? "Cleaned \(finding.fullName): \(formatBytes(finding.bytes)) freed inside Docker's disk"
-                : "Cleaned \(finding.fullName), \(formatBytes(finding.bytes))"
+            let size = formatBytes(finding.bytes)
+            let message = finding.bytes == 0 ? "Cleaned \(finding.fullName)"
+                : finding.category == .docker ? "Cleaned \(finding.fullName): \(size) freed inside Docker's disk"
+                : "Cleaned \(finding.fullName), \(size)"
             lastCleaned = message
             AccessibilityNotification.Announcement(message).post()
         } else {
