@@ -169,7 +169,7 @@ If a device shows as unreachable, its header says why:
 
 ## Config
 
-Everything below is editable in Settings (the gear, then Settings…): General holds open at login and the scan intervals, then each machine has its own page with its free-space limit, project folders, a connection test and Remove. Devices are added there from your tailnet peers or by name.
+Everything below is editable in Settings (the gear, then Settings…): General holds open at login and the scan intervals, then each machine has its own page with its free-space limit, project folders, a connection test and Remove (or right-click it in the list). Devices are added there from your tailnet peers or by name; a pasted URL such as `https://homeserver.<tailnet>.ts.net/` is trimmed to its host.
 
 <img src="docs/screenshots/settings.png" alt="Settings window: General and a list of machines on the left, homeserver's page on the right with status, host, its own 20 GB limit, two project folders, Test connection and Remove" width="560">
 

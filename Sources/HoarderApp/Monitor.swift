@@ -90,8 +90,10 @@ final class Monitor {
         }
     }
 
-    func addDevice(_ host: String) {
-        let host = host.trimmingCharacters(in: .whitespaces)
+    /// Takes a name or a pasted URL such as `https://box.tail1234.ts.net/`, keeping only the host.
+    func addDevice(_ input: String) {
+        let trimmed = input.trimmingCharacters(in: .whitespaces)
+        let host = URL(string: trimmed).flatMap { $0.scheme != nil ? $0.host() : nil } ?? trimmed
         guard !host.isEmpty, !host.hasPrefix("-"), !config.devices.contains(where: { $0.host == host }) else { return }
         updateConfig { $0.devices.append(Device(host: host)) }
         // Scanned now rather than on the next minute's tick, so Settings shows its status right away.

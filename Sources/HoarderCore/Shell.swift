@@ -30,6 +30,9 @@ enum Shell {
                 process.arguments = [tool] + arguments
                 var environment = ProcessInfo.processInfo.environment
                 environment["PATH"] = path
+                // Set for apps launched by launchd. Tailscale's bundled CLI sees it and tries to start its
+                // GUI instead of answering, so `tailscale status` fails from the app but not a terminal.
+                environment["XPC_SERVICE_NAME"] = nil
                 process.environment = environment
                 let pipe = Pipe(), errors = Pipe()
                 process.standardOutput = pipe
