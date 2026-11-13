@@ -62,6 +62,11 @@ struct SettingsView: View {
                         .foregroundStyle(statusColor(machine))
                         .monospacedDigit()
                 }
+                .contextMenu {
+                    if let host = machine.host {
+                        Button("Remove \(host)") { remove(host) }
+                    }
+                }
             }
             addDevice.padding(.top, 8)
             Spacer()
@@ -88,7 +93,7 @@ struct SettingsView: View {
     @ViewBuilder
     private var addDevice: some View {
         if let name = addingName {
-            TextField("host name", text: Binding(get: { name }, set: { addingName = $0 }))
+            TextField("box or box.tailnet.ts.net", text: Binding(get: { name }, set: { addingName = $0 }))
                 .textFieldStyle(.roundedBorder)
                 .onSubmit { add(name) }
                 .onExitCommand { addingName = nil }
@@ -115,12 +120,16 @@ struct SettingsView: View {
         }
     }
 
+    private func remove(_ host: String) {
+        monitor.removeDevice(host)
+        if page == .machine(host) { page = .general }
+    }
+
     private func add(_ host: String) {
         addingName = nil
-        let host = host.trimmingCharacters(in: .whitespaces)
-        guard !host.isEmpty else { return }
+        let before = Set(monitor.config.devices.map(\.host))
         monitor.addDevice(host)
-        if monitor.machines.contains(where: { $0.id == host }) { page = .machine(host) }
+        if let added = monitor.config.devices.first(where: { !before.contains($0.host) }) { page = .machine(added.host) }
     }
 
     // MARK: Pages
@@ -352,7 +361,7 @@ private struct MachinePage: View {
             .disabled(testing)
             Spacer(minLength: 12)
             if confirmingRemove {
-                Text("Stop watching \(machine.name)?").foregroundStyle(Theme.dim)
+                Text("Stop watching?").foregroundStyle(Theme.dim)
                 Button("Remove") {
                     if let host = machine.host { monitor.removeDevice(host) }
                     onRemove()
@@ -360,7 +369,7 @@ private struct MachinePage: View {
                 .foregroundStyle(Theme.red)
                 Button("Cancel") { confirmingRemove = false }
             } else {
-                Button("Remove \(machine.name)") { confirmingRemove = true }
+                Button("Remove device") { confirmingRemove = true }
                     .foregroundStyle(Theme.red)
             }
         }
