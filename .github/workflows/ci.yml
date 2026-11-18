@@ -8,3 +8,6 @@ on:
 jobs:
   linux:
     uses: ./.github/workflows/linux-cli.yml
+
+  macos:
+    uses: wezzcoetzee/.github/.github/workflows/macos-ci.yml@main
