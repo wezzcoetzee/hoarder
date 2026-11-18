@@ -76,8 +76,10 @@ private func suggestion(_ report: Report, dockerInVM: Bool) -> String {
 
 /// Without this, macOS hides the banner while the popover is open, because the app is frontmost then.
 private final class ForegroundBanners: NSObject, UNUserNotificationCenterDelegate, Sendable {
-    func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
         [.banner, .sound]
     }
 }

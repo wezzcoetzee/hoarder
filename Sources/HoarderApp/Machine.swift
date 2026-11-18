@@ -85,10 +85,12 @@ final class Machine: Identifiable {
     }
 
     /// A still machine for `--snapshot`: shows the given state, never scans, alerts or cleans.
-    init(preview host: String?, report: Report?, disk: DiskSpace?, config: Config, alertState: AlertState,
-         scanning: Bool, cleaning: [Finding.ID: String], failures: [Finding.ID: String], lastCleaned: String?,
-         lastFailed: String?, problem: String?, platform: Remote.Platform? = nil, batch: Batch? = nil,
-         scanned: Set<HoarderCore.Category> = []) {
+    init(
+        preview host: String?, report: Report?, disk: DiskSpace?, config: Config, alertState: AlertState,
+        scanning: Bool, cleaning: [Finding.ID: String], failures: [Finding.ID: String], lastCleaned: String?,
+        lastFailed: String?, problem: String?, platform: Remote.Platform? = nil, batch: Batch? = nil,
+        scanned: Set<HoarderCore.Category> = []
+    ) {
         self.batch = batch
         self.scanned = scanned
         id = host ?? Self.localID
@@ -111,9 +113,9 @@ final class Machine: Identifiable {
 
     private static var arch: String {
         #if arch(arm64)
-        "arm64"
+            "arm64"
         #else
-        "x86_64"
+            "x86_64"
         #endif
     }
 
@@ -245,7 +247,8 @@ final class Machine: Identifiable {
         batch = nil
         // One row keeps that row's own line.
         guard rows.count > 1 else { return }
-        let message = stoppedAfter.map { "Stopped after \($0) of \(rows.count), \(formatBytes(freed)) cleaned" }
+        let message =
+            stoppedAfter.map { "Stopped after \($0) of \(rows.count), \(formatBytes(freed)) cleaned" }
             ?? "Cleaned \(cleaned) of \(rows.count), \(formatBytes(freed))"
         lastCleaned = message
         AccessibilityNotification.Announcement(message).post()
@@ -262,19 +265,24 @@ final class Machine: Identifiable {
         if frozenSections == nil, let report { frozenSections = Self.rankedSections(report) }
         cleaning[finding.id] = finding.fullName
         failures[finding.id] = nil
-        let result = if let remote, let command = finding.cleanup {
-            await remote.clean(command)
-        } else {
-            await Hoarder.clean(finding)
-        }
+        let result =
+            if let remote, let command = finding.cleanup {
+                await remote.clean(command)
+            } else {
+                await Hoarder.clean(finding)
+            }
         cleaning[finding.id] = nil
         var done = result.ok
         if result.ok {
             // In a VM, Docker frees space inside its disk; the host gets it back only after the VM trims.
             let size = formatBytes(finding.bytes)
-            finish(finding, saying: finding.bytes == 0 ? "Cleaned \(finding.fullName)"
-                : finding.category == .docker && dockerInVM ? "Cleaned \(finding.fullName): \(size) freed inside Docker's disk"
-                : "Cleaned \(finding.fullName), \(size)")
+            finish(
+                finding,
+                saying: finding.bytes == 0
+                    ? "Cleaned \(finding.fullName)"
+                    : finding.category == .docker && dockerInVM
+                        ? "Cleaned \(finding.fullName): \(size) freed inside Docker's disk"
+                        : "Cleaned \(finding.fullName), \(size)")
         } else {
             let failure = Failure(reason: describeFailure(result.output), output: result.output)
             failures[finding.id] = failure

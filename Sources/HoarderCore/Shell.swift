@@ -3,9 +3,11 @@ import Foundation
 enum Shell {
     /// A menu bar app launched from Finder inherits a bare PATH, so the usual tool locations are added.
     private static let path: String = {
-        let extra = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/local/go/bin", "~/go/bin", "~/.bun/bin",
-                     "~/Library/pnpm", "~/.local/bin", "~/.rd/bin", "~/.orbstack/bin",
-                     "/Applications/Docker.app/Contents/Resources/bin"].map(expand)
+        let extra = [
+            "/opt/homebrew/bin", "/usr/local/bin", "/usr/local/go/bin", "~/go/bin", "~/.bun/bin",
+            "~/Library/pnpm", "~/.local/bin", "~/.rd/bin", "~/.orbstack/bin",
+            "/Applications/Docker.app/Contents/Resources/bin",
+        ].map(expand)
         let inherited = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
         return (inherited.split(separator: ":").map(String.init) + extra).joined(separator: ":")
     }()
@@ -21,8 +23,10 @@ enum Shell {
     /// `includeErrors` sends stderr into `stdout`, for commands whose failure message is shown to the user.
     /// `input` is fed to the command's stdin. A command still running after `timeout` is terminated, so a
     /// wedged daemon or an unreachable host cannot stall a scan forever.
-    static func run(_ tool: String, _ arguments: [String], includeErrors: Bool = false, input: URL? = nil,
-                    timeout: TimeInterval = 300) async -> Output {
+    static func run(
+        _ tool: String, _ arguments: [String], includeErrors: Bool = false, input: URL? = nil,
+        timeout: TimeInterval = 300
+    ) async -> Output {
         await withCheckedContinuation { continuation in
             DispatchQueue.global().async {
                 let process = Process()
@@ -63,9 +67,11 @@ enum Shell {
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
                 drained.wait()
                 process.waitUntilExit()
-                continuation.resume(returning: Output(status: process.terminationStatus,
-                                                      stdout: String(decoding: data, as: UTF8.self),
-                                                      stderr: String(decoding: errorData, as: UTF8.self)))
+                continuation.resume(
+                    returning: Output(
+                        status: process.terminationStatus,
+                        stdout: String(decoding: data, as: UTF8.self),
+                        stderr: String(decoding: errorData, as: UTF8.self)))
             }
         }
     }
@@ -78,9 +84,9 @@ enum Shell {
     /// status is ignored.
     static func sizes(of paths: [String], excluding: String? = nil) async -> [String: Int64] {
         #if os(Linux)
-        let arguments = ["-sk"] + (excluding.map { ["--exclude=\($0)"] } ?? [])
+            let arguments = ["-sk"] + (excluding.map { ["--exclude=\($0)"] } ?? [])
         #else
-        let arguments = ["-sk"] + (excluding.map { ["-I", $0] } ?? [])
+            let arguments = ["-sk"] + (excluding.map { ["-I", $0] } ?? [])
         #endif
         return await withTaskGroup(of: (String, Int64?).self) { group in
             var pending = paths.makeIterator()

@@ -89,8 +89,9 @@ public extension Report {
 
     /// The report with one row swapped for a newer reading of it, in the same place.
     func replacing(_ finding: Finding) -> Report {
-        Report(findings: findings.map { $0.id == finding.id ? finding : $0 }, notes: notes, scannedAt: scannedAt,
-               duration: duration)
+        Report(
+            findings: findings.map { $0.id == finding.id ? finding : $0 }, notes: notes, scannedAt: scannedAt,
+            duration: duration)
     }
 }
 

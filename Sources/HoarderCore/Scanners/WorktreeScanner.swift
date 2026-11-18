@@ -76,49 +76,57 @@ enum WorktreeScanner {
     /// One worktree read again, as its row; nil when git no longer lists it.
     static func recheck(path: String, bytes: Int64, staleAfterDays: Int) async -> Finding? {
         guard let gitDir = Git.commonDir(forDotGit: path + "/.git"),
-              let worktree = await inspect(gitDir: gitDir, only: path).first else { return nil }
+            let worktree = await inspect(gitDir: gitDir, only: path).first
+        else { return nil }
         return finding(for: worktree, bytes: bytes, staleAfterDays: staleAfterDays)
     }
 
     /// Every linked worktree of a repo, or only the one at `only`.
     private static func inspect(gitDir: String, only: String? = nil) async -> [Worktree] {
         let listing = await git(gitDir, "worktree", "list", "--porcelain", "-z")
-        let parsed = if listing.ok {
-            parse(porcelain: listing.stdout)
-        } else {
-            // Ubuntu 22.04's git (2.34) refuses -z.
-            parse(porcelain: await git(gitDir, "worktree", "list", "--porcelain").stdout, separator: "\n")
-        }
+        let parsed =
+            if listing.ok {
+                parse(porcelain: listing.stdout)
+            } else {
+                // Ubuntu 22.04's git (2.34) refuses -z.
+                parse(porcelain: await git(gitDir, "worktree", "list", "--porcelain").stdout, separator: "\n")
+            }
         let entries = parsed.filter { only == nil || $0.path == only }
         guard !entries.isEmpty else { return [] }
 
         let base = await defaultBranch(gitDir)
-        let merged: Set<String> = if let base {
-            Set(await git(gitDir, "branch", "--format=%(refname:short)", "--merged=\(base)").stdout
-                .split(separator: "\n").map(String.init))
-        } else { [] }
+        let merged: Set<String> =
+            if let base {
+                Set(
+                    await git(gitDir, "branch", "--format=%(refname:short)", "--merged=\(base)").stdout
+                        .split(separator: "\n").map(String.init))
+            } else { [] }
         let repo = ((gitDir as NSString).deletingLastPathComponent as NSString).lastPathComponent
 
         return await withTaskGroup(of: Worktree.self) { group in
             for entry in entries {
                 group.addTask {
                     let present = exists(entry.path)
-                    let dirty = if present {
-                        !(await gitIn(entry.path, "status", "--porcelain").stdout.isEmpty)
-                    } else { false }
+                    let dirty =
+                        if present {
+                            !(await gitIn(entry.path, "status", "--porcelain").stdout.isEmpty)
+                        } else { false }
                     // A present worktree is asked about its own HEAD; via --git-dir, HEAD is the main checkout's.
-                    let log = if present {
-                        await gitIn(entry.path, "log", "-1", "--format=%ct", "HEAD")
-                    } else {
-                        await git(gitDir, "log", "-1", "--format=%ct", "--end-of-options", entry.branch ?? "HEAD")
-                    }
+                    let log =
+                        if present {
+                            await gitIn(entry.path, "log", "-1", "--format=%ct", "HEAD")
+                        } else {
+                            await git(gitDir, "log", "-1", "--format=%ct", "--end-of-options", entry.branch ?? "HEAD")
+                        }
                     let tip = TimeInterval(log.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
                         .map(Date.init(timeIntervalSince1970:))
-                    let pushed = if let branch = entry.branch {
-                        await git(gitDir, "show-ref", "-q", "--verify", "refs/remotes/origin/\(branch)").ok
-                    } else { false }
-                    return Worktree(repo: repo, gitDir: gitDir, entry: entry, present: present, dirty: dirty,
-                                    merged: entry.branch.map(merged.contains) ?? false, pushed: pushed, tip: tip)
+                    let pushed =
+                        if let branch = entry.branch {
+                            await git(gitDir, "show-ref", "-q", "--verify", "refs/remotes/origin/\(branch)").ok
+                        } else { false }
+                    return Worktree(
+                        repo: repo, gitDir: gitDir, entry: entry, present: present, dirty: dirty,
+                        merged: entry.branch.map(merged.contains) ?? false, pushed: pushed, tip: tip)
                 }
             }
             return await group.reduce(into: []) { $0.append($1) }
@@ -148,9 +156,10 @@ enum WorktreeScanner {
 
     private static func finding(for worktree: Worktree, bytes: Int64, staleAfterDays: Int) -> Finding {
         let (verdict, detail) = classify(worktree, staleAfterDays: staleAfterDays)
-        return Finding(category: .worktree, title: "\(worktree.repo) · \(worktree.entry.branch ?? "detached")",
-                       detail: detail, paths: [worktree.entry.path], bytes: bytes, lastActivity: worktree.tip,
-                       verdict: verdict, cleanup: removeCommand(worktree))
+        return Finding(
+            category: .worktree, title: "\(worktree.repo) · \(worktree.entry.branch ?? "detached")",
+            detail: detail, paths: [worktree.entry.path], bytes: bytes, lastActivity: worktree.tip,
+            verdict: verdict, cleanup: removeCommand(worktree))
     }
 
     /// Forces only past what the scan saw: a clean worktree gets no --force, so git refuses one that
@@ -165,9 +174,10 @@ enum WorktreeScanner {
     private static func orphanFinding(_ orphans: [Worktree]) -> Finding {
         let first = orphans[0]
         let count = orphans.count == 1 ? "1 orphan" : "\(orphans.count) orphans"
-        return Finding(category: .worktree, title: "\(first.repo) · \(count)",
-                       detail: "folders gone, tidies git's list", paths: orphans.map(\.entry.path).sorted(),
-                       bytes: 0, lastActivity: orphans.compactMap(\.tip).max(), verdict: .reclaimable,
-                       cleanup: "git --git-dir=\(shellQuote(first.gitDir)) worktree prune")
+        return Finding(
+            category: .worktree, title: "\(first.repo) · \(count)",
+            detail: "folders gone, tidies git's list", paths: orphans.map(\.entry.path).sorted(),
+            bytes: 0, lastActivity: orphans.compactMap(\.tip).max(), verdict: .reclaimable,
+            cleanup: "git --git-dir=\(shellQuote(first.gitDir)) worktree prune")
     }
 }

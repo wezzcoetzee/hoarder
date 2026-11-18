@@ -23,12 +23,15 @@ enum DockerScanner {
     }
 
     private static let prunes: [String: Prune] = [
-        "Build Cache": Prune(title: "Build cache", verdict: .reclaimable, command: "docker builder prune -f",
-                             why: "rebuilt on next build"),
-        "Containers": Prune(title: "Stopped containers", verdict: .reclaimable, command: "docker container prune -f",
-                            why: "files go, images stay"),
-        "Images": Prune(title: "Unused images", verdict: .review, command: "docker image prune -a -f",
-                        why: "re-pulled on demand"),
+        "Build Cache": Prune(
+            title: "Build cache", verdict: .reclaimable, command: "docker builder prune -f",
+            why: "rebuilt on next build"),
+        "Containers": Prune(
+            title: "Stopped containers", verdict: .reclaimable, command: "docker container prune -f",
+            why: "files go, images stay"),
+        "Images": Prune(
+            title: "Unused images", verdict: .review, command: "docker image prune -a -f",
+            why: "re-pulled on demand"),
     ]
 
     struct Volume: Decodable {
@@ -72,8 +75,13 @@ enum DockerScanner {
     /// Sparse VM disks. Pruning frees space inside them; the file on the host shrinks only after the VM trims.
     /// Each runtime lists its disk's names across versions; the first that exists wins.
     private static let vmDisks = [
-        ("Rancher Desktop VM disk", ["~/Library/Application Support/rancher-desktop/lima/0/disk",
-                                     "~/Library/Application Support/rancher-desktop/lima/0/diffdisk"]),
+        (
+            "Rancher Desktop VM disk",
+            [
+                "~/Library/Application Support/rancher-desktop/lima/0/disk",
+                "~/Library/Application Support/rancher-desktop/lima/0/diffdisk",
+            ]
+        ),
         ("Docker Desktop VM disk", ["~/Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw"]),
         ("Colima VM disk", ["~/.colima/_lima/colima/disk", "~/.colima/_lima/colima/diffdisk"]),
     ].compactMap { title, candidates in candidates.map(expand).first(where: exists).map { (title, $0) } }
@@ -83,8 +91,9 @@ enum DockerScanner {
     static func scan() async -> (findings: [Finding], daemonDown: Bool) {
         let sizes = await Shell.sizes(of: vmDisks.map(\.1))
         let disks = vmDisks.map { title, path in
-            Finding(category: .docker, title: title, detail: "holds Docker's images and volumes",
-                    paths: [path], bytes: sizes[path] ?? 0, lastActivity: nil, verdict: .keep, cleanup: nil)
+            Finding(
+                category: .docker, title: title, detail: "holds Docker's images and volumes",
+                paths: [path], bytes: sizes[path] ?? 0, lastActivity: nil, verdict: .keep, cleanup: nil)
         }
 
         async let summary = Shell.run("docker", ["system", "df", "--format", "{{json .}}"])
@@ -95,8 +104,9 @@ enum DockerScanner {
 
         let prunable = rows.compactMap { row -> Finding? in
             guard let prune = prunes[row.type], let bytes = parseSize(row.reclaimable), bytes > 0 else { return nil }
-            return Finding(category: .docker, title: prune.title, detail: prune.why,
-                           paths: [], bytes: bytes, lastActivity: nil, verdict: prune.verdict, cleanup: prune.command)
+            return Finding(
+                category: .docker, title: prune.title, detail: prune.why,
+                paths: [], bytes: bytes, lastActivity: nil, verdict: prune.verdict, cleanup: prune.command)
         }
         return (prunable + (await volumes) + disks, false)
     }
@@ -119,16 +129,18 @@ enum DockerScanner {
 
     /// Builder name by node name. A docker-container builder keeps its cache in `buildx_buildkit_<node>_state`.
     private static func builderNodes(_ builders: [Builder]) -> [String: String] {
-        Dictionary(builders.flatMap { builder in (builder.nodes ?? []).map { ($0.name, builder.name) } },
-                   uniquingKeysWith: { first, _ in first })
+        Dictionary(
+            builders.flatMap { builder in (builder.nodes ?? []).map { ($0.name, builder.name) } },
+            uniquingKeysWith: { first, _ in first })
     }
 
     private static func registryVolumes(_ containers: [Container]) -> Set<String> {
-        Set(containers.filter { container in
-            // "host:5000/library/registry:2@sha256:…" → "registry"
-            let repository = container.image.split(separator: "@").first?.split(separator: "/").last ?? ""
-            return registryImages.contains(String(repository.split(separator: ":").first ?? ""))
-        }.flatMap { $0.mounts.split(separator: ",").map(String.init) })
+        Set(
+            containers.filter { container in
+                // "host:5000/library/registry:2@sha256:…" → "registry"
+                let repository = container.image.split(separator: "@").first?.split(separator: "/").last ?? ""
+                return registryImages.contains(String(repository.split(separator: ":").first ?? ""))
+            }.flatMap { $0.mounts.split(separator: ",").map(String.init) })
     }
 
     /// `builderNodes` is nil when `docker buildx` could not list builders, so a BuildKit volume's owner is
@@ -138,8 +150,9 @@ enum DockerScanner {
         guard let bytes = parseSize(volume.size), bytes > 0 else { return nil }
         let inUse = volume.links != "0"
         let row = { (detail: String, verdict: Verdict, cleanup: String?) in
-            Finding(category: .docker, title: volume.name, detail: detail, paths: [], bytes: bytes,
-                    lastActivity: nil, verdict: verdict, cleanup: cleanup)
+            Finding(
+                category: .docker, title: volume.name, detail: detail, paths: [], bytes: bytes,
+                lastActivity: nil, verdict: verdict, cleanup: cleanup)
         }
 
         if registryVolumes.contains(volume.name) {

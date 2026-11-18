@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+
 @testable import HoarderCore
 
 @Test func parsesWorktreePorcelainSkippingMain() {
@@ -9,28 +10,32 @@ import Testing
         ["worktree /wt/detached", "HEAD 123", "detached", "locked reason here"],
     ]
     let porcelain = blocks.map { $0.map { $0 + "\0" }.joined() + "\0" }.joined()
-    #expect(WorktreeScanner.parse(porcelain: porcelain) == [
-        .init(path: "/wt/new\nline", branch: "feat/x"),
-        .init(path: "/wt/detached", branch: nil, locked: true),
-    ])
+    #expect(
+        WorktreeScanner.parse(porcelain: porcelain) == [
+            .init(path: "/wt/new\nline", branch: "feat/x"),
+            .init(path: "/wt/detached", branch: nil, locked: true),
+        ])
     // git before 2.36 has no -z: the same listing, newline-separated.
     let lines = blocks.dropFirst().dropFirst().map { $0.joined(separator: "\n") + "\n" }.joined(separator: "\n")
-    #expect(WorktreeScanner.parse(porcelain: blocks[0].joined(separator: "\n") + "\n\n" + lines, separator: "\n") == [
-        .init(path: "/wt/detached", branch: nil, locked: true),
-    ])
+    #expect(
+        WorktreeScanner.parse(porcelain: blocks[0].joined(separator: "\n") + "\n\n" + lines, separator: "\n") == [
+            .init(path: "/wt/detached", branch: nil, locked: true)
+        ])
 }
 
 @Test(arguments: [
     // present, locked, dirty, merged, pushed, ageDays, expected
     (false, false, false, false, false, 1, Verdict.reclaimable),  // orphan, whatever its age
-    (true, false, true, true, true, 90, .keep),                   // dirty beats merged
-    (true, true, false, true, true, 90, .keep),                   // locked
-    (true, false, false, true, true, 3, .keep),                   // too recent to judge
-    (true, false, false, true, true, 20, .reclaimable),           // clean and merged
-    (true, false, false, false, false, 20, .review),              // clean, stale, unmerged
+    (true, false, true, true, true, 90, .keep),  // dirty beats merged
+    (true, true, false, true, true, 90, .keep),  // locked
+    (true, false, false, true, true, 3, .keep),  // too recent to judge
+    (true, false, false, true, true, 20, .reclaimable),  // clean and merged
+    (true, false, false, false, false, 20, .review),  // clean, stale, unmerged
 ])
-func classifiesWorktrees(present: Bool, locked: Bool, dirty: Bool, merged: Bool, pushed: Bool, age: Int,
-                         expected: Verdict) {
+func classifiesWorktrees(
+    present: Bool, locked: Bool, dirty: Bool, merged: Bool, pushed: Bool, age: Int,
+    expected: Verdict
+) {
     let now = Date.now
     let worktree = WorktreeScanner.Worktree(
         repo: "r", gitDir: "/r/.git", entry: .init(path: "/wt", branch: "b", locked: locked), present: present,
@@ -71,8 +76,9 @@ func forcesWorktreeRemovalOnlyPastWhatTheScanSaw(present: Bool, locked: Bool, di
 ])
 func judgesVolumesByOwner(name: String, links: String, verdict: Verdict?, command: String?) {
     let volume = DockerScanner.Volume(name: name, size: "3GB", links: links)
-    let row = DockerScanner.classify(volume, builderNodes: ["ci-release0": "ci-release"],
-                                     registryVolumes: ["infrastructure_registry-data"])
+    let row = DockerScanner.classify(
+        volume, builderNodes: ["ci-release0": "ci-release"],
+        registryVolumes: ["infrastructure_registry-data"])
     #expect(row?.verdict == verdict)
     #expect(row?.cleanup == command)
 }
@@ -91,13 +97,15 @@ func judgesVolumesByOwner(name: String, links: String, verdict: Verdict?, comman
 }
 
 private func finding(_ path: String, _ bytes: Int64) -> Finding {
-    Finding(category: .worktree, title: path, detail: "", paths: [path], bytes: bytes, lastActivity: nil,
-            verdict: .reclaimable, cleanup: nil)
+    Finding(
+        category: .worktree, title: path, detail: "", paths: [path], bytes: bytes, lastActivity: nil,
+        verdict: .reclaimable, cleanup: nil)
 }
 
 @Test func totalsSkipPathsNestedInsideCountedOnes() {
-    let report = Report(findings: [finding("/wt/a/node_modules", 40), finding("/wt/a", 100), finding("/wt/ab", 5)],
-                        notes: [], scannedAt: .now, duration: 0)
+    let report = Report(
+        findings: [finding("/wt/a/node_modules", 40), finding("/wt/a", 100), finding("/wt/ab", 5)],
+        notes: [], scannedAt: .now, duration: 0)
     #expect(report.total(.reclaimable) == 105)
 }
 
@@ -110,13 +118,19 @@ private func finding(_ path: String, _ bytes: Int64) -> Finding {
 }
 
 @Test(arguments: [
-    ("fatal: '/Users/dev/.worktrees/a' contains modified or untracked files, use --force to delete it",
-     "it has uncommitted changes now"),
-    ("fatal: cannot remove a locked working tree, lock reason: agent\nuse 'remove -f -f' to override or unlock first",
-     "it was locked since the scan"),
+    (
+        "fatal: '/Users/dev/.worktrees/a' contains modified or untracked files, use --force to delete it",
+        "it has uncommitted changes now"
+    ),
+    (
+        "fatal: cannot remove a locked working tree, lock reason: agent\nuse 'remove -f -f' to override or unlock first",
+        "it was locked since the scan"
+    ),
     ("Error response from daemon: remove storefront_pgdata: volume is in use - [3f2a]", "a container is using it now"),
-    ("Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?",
-     "Docker is not running"),
+    (
+        "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?",
+        "Docker is not running"
+    ),
     ("zsh:1: command not found: pnpm", "pnpm is not on the login shell's PATH"),
     ("bash: pnpm: command not found", "pnpm is not on the login shell's PATH"),
     ("rm: /home/dev/.cache/go-build/0a: Permission denied\n", "rm: ~/.cache/go-build/0a: Permission denied"),
@@ -133,18 +147,22 @@ func describesFailuresInPlainWords(output: String, expected: String) {
     try FileManager.default.createDirectory(atPath: made + "/repo", withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(atPath: made) }
     // Rows carry the paths git prints, which are real paths; macOS's temporary folder is behind /var.
-    let base = realpath(made, nil).map { pointer in
-        defer { free(pointer) }
-        return String(cString: pointer)
-    } ?? made
+    let base =
+        realpath(made, nil).map { pointer in
+            defer { free(pointer) }
+            return String(cString: pointer)
+        } ?? made
     let repo = base + "/repo", worktree = base + "/wt"
-    for arguments in [["init", "-q", "-b", "main"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"],
-                      ["worktree", "add", "-q", worktree, "-b", "feature"]] {
+    for arguments in [
+        ["init", "-q", "-b", "main"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"],
+        ["worktree", "add", "-q", worktree, "-b", "feature"],
+    ] {
         #expect(await Shell.run("git", ["-C", repo] + arguments, includeErrors: true).ok)
     }
     try "edit".write(toFile: worktree + "/notes.txt", atomically: true, encoding: .utf8)
-    let scanned = Finding(category: .worktree, title: "repo · feature", detail: "merged, 20d old", paths: [worktree],
-                          bytes: 42, lastActivity: nil, verdict: .reclaimable, cleanup: "git worktree remove '\(worktree)'")
+    let scanned = Finding(
+        category: .worktree, title: "repo · feature", detail: "merged, 20d old", paths: [worktree],
+        bytes: 42, lastActivity: nil, verdict: .reclaimable, cleanup: "git worktree remove '\(worktree)'")
 
     guard case .judged(let fresh) = await Hoarder.recheck(scanned, config: Config()) else {
         Issue.record("expected the worktree to be judged again")
@@ -168,14 +186,14 @@ func describesFailuresInPlainWords(output: String, expected: String) {
     var state = AlertState()
     #expect(state.evaluate(free: 50 * gb, limit: limit, now: now) == false)
     #expect(state.evaluate(free: 30 * gb, limit: limit, now: now) == true)
-    #expect(state.evaluate(free: 25 * gb, limit: limit, now: now) == false)   // still the same dip
-    #expect(state.evaluate(free: 41 * gb, limit: limit, now: now) == false)   // inside the margin, stays fired
+    #expect(state.evaluate(free: 25 * gb, limit: limit, now: now) == false)  // still the same dip
+    #expect(state.evaluate(free: 41 * gb, limit: limit, now: now) == false)  // inside the margin, stays fired
     #expect(state.evaluate(free: 39 * gb, limit: limit, now: now) == false)
     state.snooze(until: now.addingTimeInterval(60))
-    #expect(state.evaluate(free: 25 * gb, limit: limit, now: now) == false)   // snoozed
+    #expect(state.evaluate(free: 25 * gb, limit: limit, now: now) == false)  // snoozed
     #expect(state.evaluate(free: 25 * gb, limit: limit, now: now.addingTimeInterval(61)) == true)  // snooze over
     state.snooze(until: now.addingTimeInterval(60))
-    #expect(state.evaluate(free: 45 * gb, limit: limit, now: now) == false)   // recovered: re-arms, ends snooze
+    #expect(state.evaluate(free: 45 * gb, limit: limit, now: now) == false)  // recovered: re-arms, ends snooze
     #expect(state.evaluate(free: 30 * gb, limit: limit, now: now) == true)
 }
 
@@ -187,10 +205,10 @@ func describesFailuresInPlainWords(output: String, expected: String) {
     state.snooze(until: now.addingTimeInterval(60))
     state.unsnooze(low: true)
     #expect(!state.isSnoozed(now: now))
-    #expect(state.evaluate(free: 30 * gb, limit: limit, now: now) == false)   // seen in the popover
+    #expect(state.evaluate(free: 30 * gb, limit: limit, now: now) == false)  // seen in the popover
     state.snooze(until: now.addingTimeInterval(60))
-    state.unsnooze(low: false)   // inside the margin, so the snooze never ended on its own
-    #expect(state.evaluate(free: 30 * gb, limit: limit, now: now) == true)    // the next dip still alerts
+    state.unsnooze(low: false)  // inside the margin, so the snooze never ended on its own
+    #expect(state.evaluate(free: 30 * gb, limit: limit, now: now) == true)  // the next dip still alerts
 }
 
 @Test func namesMisspelledConfigKeys() {
@@ -220,11 +238,14 @@ func describesSSHFailuresInWordsThatSayWhatToDo(status: Int32, stderr: String, e
 }
 
 @Test func readsTailnetPeersByTheirMagicDNSName() {
-    let json = Data(#"{"Self": {"DNSName": "me.tail.ts.net."}, "Peer": {"a": {"HostName": "Wes's Mac mini", "DNSName": "wesleys-mac-mini.tail.ts.net.", "OS": "macOS", "Online": true}, "b": {"HostName": "localhost", "DNSName": "phone.tail.ts.net.", "OS": "iOS", "Online": false}}}"#.utf8)
-    #expect(Tailnet.parse(json) == [
-        .init(name: "phone", os: "iOS", online: false),
-        .init(name: "wesleys-mac-mini", os: "macOS", online: true),
-    ])
+    let json = Data(
+        #"{"Self": {"DNSName": "me.tail.ts.net."}, "Peer": {"a": {"HostName": "Wes's Mac mini", "DNSName": "wesleys-mac-mini.tail.ts.net.", "OS": "macOS", "Online": true}, "b": {"HostName": "localhost", "DNSName": "phone.tail.ts.net.", "OS": "iOS", "Online": false}}}"#
+            .utf8)
+    #expect(
+        Tailnet.parse(json) == [
+            .init(name: "phone", os: "iOS", online: false),
+            .init(name: "wesleys-mac-mini", os: "macOS", online: true),
+        ])
     #expect(Tailnet.parse(json)?.filter(\.canScan).map(\.name) == ["wesleys-mac-mini"])
 }
 

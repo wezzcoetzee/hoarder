@@ -137,7 +137,9 @@ final class Monitor {
         do {
             config = try Config.load()
             let unknown = (try? Data(contentsOf: Config.fileURL)).map(Config.unknownKeys) ?? []
-            configError = unknown.isEmpty ? nil
+            configError =
+                unknown.isEmpty
+                ? nil
                 : "config.json: unknown \(unknown.count == 1 ? "key" : "keys") \(unknown.joined(separator: ", "))"
             configInvalid = false
         } catch {
@@ -153,11 +155,13 @@ final class Monitor {
         var seen: Set<String> = []
         let devices = config.devices.filter { !$0.host.isEmpty && !$0.host.hasPrefix("-") && seen.insert($0.host).inserted }
         let existing = Dictionary(uniqueKeysWithValues: machines.map { ($0.id, $0) })
-        machines = [local] + devices.map { device in
-            let machine = existing[device.host] ?? Machine(device: device, build: Self.build)
-            machine.device = device
-            return machine
-        }
+        machines =
+            [local]
+            + devices.map { device in
+                let machine = existing[device.host] ?? Machine(device: device, build: Self.build)
+                machine.device = device
+                return machine
+            }
         machines.forEach { $0.config = config }
         if !machines.contains(where: { $0.id == selectedID }) { selectedID = Machine.localID }
     }

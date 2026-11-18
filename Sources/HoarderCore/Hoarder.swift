@@ -20,8 +20,9 @@ public enum Hoarder {
         let findings = await including(dependencies, in: worktrees) + dependencies + caches + docker.findings
         let notes = await docker.daemonDown ? [KnownState.startDocker] : []
 
-        return Report(findings: findings.sorted { ($0.verdict, -$0.bytes) < ($1.verdict, -$1.bytes) },
-                      notes: notes, scannedAt: start, duration: Date.now.timeIntervalSince(start))
+        return Report(
+            findings: findings.sorted { ($0.verdict, -$0.bytes) < ($1.verdict, -$1.bytes) },
+            notes: notes, scannedAt: start, duration: Date.now.timeIntervalSince(start))
     }
 
     /// Runs a finding's cleanup command in a login shell, so the user's tool PATH applies.

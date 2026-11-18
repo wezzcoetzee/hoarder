@@ -28,11 +28,12 @@ public actor Remote {
 
         /// "Linux x86_64", "macOS arm64".
         public var label: String {
-            let name = switch os {
-            case "darwin": "macOS"
-            case "linux": "Linux"
-            default: os
-            }
+            let name =
+                switch os {
+                case "darwin": "macOS"
+                case "linux": "Linux"
+                default: os
+                }
             return "\(name) \(arch)"
         }
     }
@@ -120,7 +121,8 @@ public actor Remote {
     private func binary(for platform: Platform) async -> (id: String, bundled: URL?) {
         let version = build.version.filter { $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" }
         guard let bundled = build.binaries?.appendingPathComponent("hoarder-\(platform.os)-\(platform.arch)"),
-              exists(bundled.path) else { return (version, nil) }
+            exists(bundled.path)
+        else { return (version, nil) }
         let hash = await Shell.run("shasum", ["-a", "256", bundled.path]).stdout.prefix(12)
         return ("\(version)-\(hash)", bundled)
     }
@@ -130,11 +132,12 @@ public actor Remote {
     private func install(id: String, bundled: URL?, platform: Platform) async throws(Failure) {
         let root = "\"$HOME/.local/share/hoarder\""
         let folder = "\"$HOME/.local/share/hoarder/\(id)\""
-        let fetch = if bundled != nil {
-            "cat > \(folder)/hoarder.part"
-        } else {
-            "curl -fsSL \(shellQuote("\(Self.releases)/v\(build.version)/hoarder-\(platform.os)-\(platform.arch)")) -o \(folder)/hoarder.part"
-        }
+        let fetch =
+            if bundled != nil {
+                "cat > \(folder)/hoarder.part"
+            } else {
+                "curl -fsSL \(shellQuote("\(Self.releases)/v\(build.version)/hoarder-\(platform.os)-\(platform.arch)")) -o \(folder)/hoarder.part"
+            }
         let script = [
             "set -e", "mkdir -p \(folder)", fetch, "chmod +x \(folder)/hoarder.part",
             "mv \(folder)/hoarder.part \(folder)/hoarder",
@@ -143,19 +146,23 @@ public actor Remote {
         let output = await ssh(script, includeErrors: bundled == nil, input: bundled, timeout: 300)
         guard output.ok else {
             if output.status == 255 { throw failure(output) }
-            throw Failure(message: bundled == nil
-                ? "Could not download hoarder \(build.version) for \(platform.os) \(platform.arch) onto \(host)"
-                : "Could not copy hoarder onto \(host)")
+            throw Failure(
+                message: bundled == nil
+                    ? "Could not download hoarder \(build.version) for \(platform.os) \(platform.arch) onto \(host)"
+                    : "Could not copy hoarder onto \(host)")
         }
         installed.insert(id)
     }
 
-    private func ssh(_ command: String, includeErrors: Bool = false, input: URL? = nil,
-                     timeout: TimeInterval) async -> Shell.Output {
+    private func ssh(
+        _ command: String, includeErrors: Bool = false, input: URL? = nil,
+        timeout: TimeInterval
+    ) async -> Shell.Output {
         // A login shell, so the device's own PATH applies (bun, go, docker in ~/.local/bin).
         let login = "exec \"${SHELL:-sh}\" -lc \(shellQuote(command))"
-        return await Shell.run("ssh", Self.sshOptions + ["--", host, login], includeErrors: includeErrors,
-                               input: input, timeout: timeout)
+        return await Shell.run(
+            "ssh", Self.sshOptions + ["--", host, login], includeErrors: includeErrors,
+            input: input, timeout: timeout)
     }
 
     private func failure(_ output: Shell.Output) -> Failure {
@@ -166,7 +173,8 @@ public actor Remote {
     /// itself failed; anything else is the remote command's own status.
     static func describe(_ output: Shell.Output, host: String) -> String {
         let text = output.stderr.isEmpty ? output.stdout : output.stderr
-        let line = text.split(separator: "\n").last { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        let line =
+            text.split(separator: "\n").last { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
             .map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
         let known: [(String, String)] = [
             ("Host key verification failed", "Host key not trusted, run ssh \(host) once to accept it"),
