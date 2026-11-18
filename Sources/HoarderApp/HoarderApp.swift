@@ -50,7 +50,14 @@ struct MenuBarLabel: View {
 
     var body: some View {
         let free = local.disk.map { gigabytes($0.free, unit: "G") } ?? "–"
-        let text = monitor.lowDevices > 0 ? "\(free) · \(monitor.lowDevices) low" : free
+        // One low device is named, so the menu bar says which without opening the popover; a long
+        // name gives way in the middle to keep the label short.
+        let low = monitor.lowDevices
+        let text = switch low.count {
+        case 0: free
+        case 1: "\(free) · \(middleTruncated(low[0].name, to: 14)) low"
+        case let count: "\(free) · \(count) low"
+        }
         Group {
             if let color = warning {
                 Image(nsImage: tinted(label(text), color))
@@ -67,18 +74,19 @@ struct MenuBarLabel: View {
     private var warning: Color? {
         let light = menuBarScheme == .light
         if local.isCritical { return light ? Theme.redOnLight : Theme.red }
-        if local.isLow || monitor.lowDevices > 0 { return light ? Theme.amberOnLight : Theme.amber }
+        if local.isLow || !monitor.lowDevices.isEmpty { return light ? Theme.amberOnLight : Theme.amber }
         return nil
     }
 
     private var spoken: String {
-        let others = switch monitor.lowDevices {
+        let low = monitor.lowDevices
+        let others = switch low.count {
         case 0: ""
-        case 1: ", 1 other device low"
+        case 1: ", \(low[0].name) low"
         case let count: ", \(count) other devices low"
         }
         guard let disk = local.disk else { return "Hoarder, free space unknown" + others }
-        return "Hoarder, " + freeSpace(disk.free, limitGB: local.alertBelowGB, low: local.isLow) + others
+        return "Hoarder, " + freeSpace(disk.free, limitGB: local.alertBelowGB, low: local.isLow, critical: local.isCritical) + others
     }
 
     /// Critical swaps the drive for a warning sign, so it differs from low by shape, not only colour.
@@ -97,4 +105,11 @@ struct MenuBarLabel: View {
         image.isTemplate = false
         return image
     }
+}
+
+/// "build-r…-ci-01": a name cut in the middle, so both its start and its distinctive end survive.
+func middleTruncated(_ text: String, to limit: Int) -> String {
+    guard text.count > limit, limit > 1 else { return text }
+    let keep = limit - 1
+    return text.prefix((keep + 1) / 2) + "…" + text.suffix(keep / 2)
 }

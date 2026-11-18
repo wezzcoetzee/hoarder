@@ -45,8 +45,9 @@ final class Monitor {
 
     var local: Machine { machines[0] }
     var selected: Machine { machines.first { $0.id == selectedID } ?? local }
-    /// Other devices under their limit, which the menu bar counts beside this Mac's free space.
-    var lowDevices: Int { machines.dropFirst().filter(\.isLow).count }
+    /// Other devices under their limit, which the menu bar names (one) or counts (more) beside this
+    /// Mac's free space.
+    var lowDevices: [Machine] { machines.dropFirst().filter(\.isLow) }
 
     /// Rescans the machine the popover shows.
     func scan() async {

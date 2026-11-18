@@ -6,11 +6,15 @@ A macOS menu bar app that watches free disk space and finds what agent coding le
 
 | Popover, with other devices in a strip on top | Click a row to see the command, then Run |
 |---|---|
-| <img src="docs/screenshots/overview.png" alt="Popover with a strip of devices (This Mac 22 GB free, homeserver 123 GB free, mac-mini unreachable) above caches and worktrees with sizes and verdicts" width="400"> | <img src="docs/screenshots/confirm.png" alt="A merged worktree opened to show its git worktree remove command and Run" width="400"> |
+| <img src="docs/screenshots/overview.png" alt="Popover with a strip of devices (This Mac 22 GB, homeserver 123 GB, mac-mini unreachable) above the free-space sum and caches and worktrees with sizes and verdicts" width="400"> | <img src="docs/screenshots/confirm.png" alt="A merged worktree opened to show its git worktree remove command and Run" width="400"> |
 
-| Clean all safe rows at once | In-use rows clean too, forcing behind a warning |
+| Clean safe lists every row it will run first | In-use rows clean too, forcing behind a warning |
 |---|---|
-| <img src="docs/screenshots/clean-safe.png" alt="Header asking to run all green rows one at a time, with Run and Cancel" width="400"> | <img src="docs/screenshots/force.png" alt="A worktree with uncommitted changes opened to show a red warning and a git worktree remove --force command" width="400"> |
+| <img src="docs/screenshots/clean-safe.png" alt="Header listing the 11 safe rows Clean safe will run, with their sizes, Show the 11 commands, and Run and Cancel" width="400"> | <img src="docs/screenshots/force.png" alt="A worktree with uncommitted changes opened to show a red warning and a git worktree remove --force command" width="400"> |
+
+| While it runs, each row is marked as it goes | Past four machines, the strip becomes a picker |
+|---|---|
+| <img src="docs/screenshots/running.png" alt="Clean safe running: two rows done, Homebrew downloads cleaning, the rest waiting, 3 of 11 and Stop after this one" width="400"> | <img src="docs/screenshots/picker.png" alt="One line reading This Mac, then 2 low, 2 unreachable, 6 machines, above the free-space sum" width="400"> |
 
 <details>
 <summary>Every section, with in-use rows shown and a clean running</summary>
@@ -72,10 +76,12 @@ That also writes the menu bar label to `/tmp/popover-menubar.png`. Pass `none` i
 
 ```json
 { "freeGB": 22, "alertBelowGB": 40, "scanning": false, "snoozed": false,
-  "hovered": "worktree:/path", "confirming": "docker:Unused images", "confirmingSafe": false, "cleaning": "cache:/path",
+  "hovered": "worktree:/path", "keyboard": "cache:/path", "confirming": "docker:Unused images", "confirmingSafe": false,
+  "showingCommands": false,
+  "batchDone": 2, "scanned": ["worktree", "cache"], "cleaning": "cache:/path",
   "expanded": ["worktree"], "showingKept": ["worktree"],
   "failures": { "worktree:/path": "fatal: …" }, "lastCleaned": "Cleaned …",
-  "lastFailed": "Not cleaned: …", "notificationsOff": false, "full": true,
+  "lastFailed": "1 cleanup not done, see Worktrees", "notificationsOff": false, "full": true,
   "devices": [{ "host": "homeserver", "freeGB": 123, "alertBelowGB": 20, "problem": null,
                 "platform": "linux x86_64", "projectRoots": ["~/development"] }],
   "settings": "homeserver" }
@@ -101,7 +107,13 @@ The README images come from `scripts/screenshots/report.json`, a made-up report,
 
 Worktree rules come from the `worktree-cleanup` skill: orphan, then hold (dirty, locked, under 14 days), then merged, then stale.
 
-Clean all safe runs every reclaimable row's command, one at a time. Kept rows can be cleaned one by one: a recent worktree or active node_modules runs its plain command, while a dirty worktree uses `--force` and a locked one `-f -f`, with a red warning that the uncommitted changes go. Rows with no command (the Docker VM disk, app data) only show where they are.
+The header adds it up: what is safe to clean on this machine, what is safe inside Docker's disk (on a Mac, Docker prunes free space inside its VM disk, not on the Mac, so that part is listed apart), what is left to review, and the free space after Clean safe, against your limit while you are under it. "After Clean safe 31.5 GB, still under your 40 GB limit" in amber says Clean safe alone will not be enough.
+
+Clean safe runs every reclaimable row's command, one at a time. Pressing it first lists every row it will run, in order, with each command one click away. While it runs, the same list marks each row done, cleaning or not done, with "3 of 11" and Stop after this one, which lets the running command finish and starts no more. It ends with "Cleaned 10 of 11, 42.6 GB", or "Stopped after 3 of 11".
+
+Kept rows can be cleaned one by one: a recent worktree or active node_modules runs its plain command, while a dirty worktree uses `--force` and a locked one `-f -f`, with a red warning that the uncommitted changes go. Rows with no command (the Docker VM disk, app data) only show where they are.
+
+A cleanup that fails says why under its row in plain words ("it has uncommitted changes now", "a container is using it now", "pnpm is not on the login shell's PATH"). Its panel has Show output for the command's own words, and Open Docker when Docker is not running and Docker Desktop is installed. Commands without `--force` never go past what the scan saw, so git refuses a worktree an agent touched since. On this Mac that worktree is checked again at once and its row changes to what it is now, in place, with the force command behind the usual red warning; a folder that is already gone counts as cleaned. A device's worktree is checked by rescanning the device, and its row says "checking again" until then. A refused row keeps its place until the popover closes, and sections hold their order while you clean.
 
 Docker volumes get a row each instead of one `docker volume prune`, which since Docker 23 skips named volumes and so frees little of what `docker system df` calls reclaimable. A registry's volume is kept with no command: pushed images are not a cache. A BuildKit state volume (`buildx_buildkit_<node>_state`) is kept while `docker buildx ls` lists its builder or a container mounts it, and is offered for `docker volume rm` only once neither does, as CI builders that are removed with their state kept leave these behind. Other unused volumes are review rows; volumes in use are not listed.
 
@@ -111,11 +123,15 @@ Bun cleanup removes the reported `~/.bun/install/cache` directory directly, so i
 
 ## Alerts
 
-Free space is read every minute (the `df` figure, not Finder's, which counts purgeable space). Below `alertBelowGB` the menu bar turns amber and one notification is sent per dip. Recovering re-arms it; Snooze silences it for a day, and Unsnooze (⌘S again) ends that early.
+Free space is read every minute (the `df` figure, not Finder's, which counts purgeable space). Below `alertBelowGB` the menu bar turns amber and one notification is sent per dip. Below a quarter of it, the menu bar turns red with a warning sign and the heading and notification say "critically low". Recovering re-arms it; Snooze silences it for a day, and Unsnooze (⌘S again) ends that early.
+
+## Keyboard
+
+The popover works without the pointer. ↑ and ↓ move a ringed highlight through the rows, Return opens one and Return again runs it, and Esc closes. ⇧⌘C starts Clean safe, ⌘R rescans, ⌘S snoozes, ⌘1 to ⌘9 pick a machine, and ⌘, opens Settings. The gear menu lists these too.
 
 ## Devices
 
-List other machines under `devices` in the config and the popover gets a strip with each one's free space. Pick one (or ⌘1 to ⌘9) and the list below is that machine's, with the same verdicts, panels and Run. Add them in Settings, which lists your tailnet's Linux and Mac peers, or under `devices` in the config.
+List other machines under `devices` in the config and the popover gets a strip with each one's free space. Pick one (or ⌘1 to ⌘9) and the list below is that machine's, with the same verdicts, panels and Run. Past four machines the strip becomes one line, the machine shown and a count such as "2 low · 2 unreachable · 6 machines", that opens a menu of every machine with its free space and shortcut. Names drop a `.ts.net` or `.local` suffix, so `box.tail1234.ts.net` shows as `box`; Settings' Host row and SSH keep the full name. Add them in Settings, which lists your tailnet's Linux and Mac peers, or under `devices` in the config.
 
 ```mermaid
 sequenceDiagram
@@ -136,7 +152,7 @@ sequenceDiagram
 - **SSH has to work without prompting.** Hoarder runs `ssh -o BatchMode=yes`, so it never answers a host key or password question. Run `ssh <host>` once by hand to accept the host key; until then the device shows as unreachable with that hint. See [Tailscale setup](#tailscale-setup) below; Host entries in `~/.ssh/config` apply too.
 - **What it installs.** The first scan puts the CLI in `~/.local/share/hoarder/<build>/hoarder` on the device and removes older builds from that folder. Nothing else is written until you press Run. Mac devices get the copy bundled in the app; Linux devices download `hoarder-linux-<arch>` from this version's release (x86_64 and aarch64), so they need `curl`.
 - **Paths are the device's own.** Its scan reads its own `~/.config/hoarder/config.json`, unless the device entry sets `projectRoots`. Caches are looked up where that OS keeps them (`~/.cache` on Linux). On Linux, Docker prunes free space on the disk directly, so those rows lose the "inside Docker's disk" note.
-- **Alerts** work per device, with its own `alertBelowGB` if set, and are titled with the host. Another device under its limit tints the menu bar amber and adds "· 1 low".
+- **Alerts** work per device, with its own `alertBelowGB` if set, and are titled with the host. Another device under its limit tints the menu bar amber and adds its name ("· homeserver low"), or a count when several are ("· 2 low").
 - **Testing unreleased changes** on a Linux device: download the `hoarder-linux-<arch>` artifact from the PR's CI run into `dist/linux/`, then `./scripts/bundle.sh`. The bundled copy is used before any download.
 
 ### Tailscale setup
@@ -200,5 +216,5 @@ Settings saves to `~/.config/hoarder/config.json` as you change things, writing 
 - Worktrees with only tool noise changed (`.vscode/settings.json`, a lockfile) count as dirty and are kept.
 - Squash-merged branches are not detected, so they show as unmerged.
 - pnpm and bun node_modules share blocks with their stores, so their sizes overstate what deleting frees.
-- A full scan takes about 45s, almost all of it `du` walking node_modules.
+- A full scan takes about 45s, almost all of it `du` walking node_modules. The first scan on this Mac names the parts that are done; a device's scan is one SSH call and shows no progress.
 - Mac devices get the CLI built for this Mac's architecture; an Intel Mac device needs a bundle built on Intel.
