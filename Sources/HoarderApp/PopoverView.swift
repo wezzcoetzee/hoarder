@@ -120,9 +120,11 @@ struct PopoverView: View {
     private static let visibleRows = 5
 
     /// The optional arguments set the starting state, for `--snapshot`.
-    init(monitor: Monitor, hovered: Finding.ID? = nil, keyboard: Finding.ID? = nil, confirming: Finding.ID? = nil,
-         confirmingSafe: Bool = false, showingCommands: Bool = false, expanded: Set<HoarderCore.Category> = [],
-         showingKept: Set<HoarderCore.Category> = [], listCap: CGFloat = 470) {
+    init(
+        monitor: Monitor, hovered: Finding.ID? = nil, keyboard: Finding.ID? = nil, confirming: Finding.ID? = nil,
+        confirmingSafe: Bool = false, showingCommands: Bool = false, expanded: Set<HoarderCore.Category> = [],
+        showingKept: Set<HoarderCore.Category> = [], listCap: CGFloat = 470
+    ) {
         self.monitor = monitor
         self.listCap = listCap
         _hovered = State(initialValue: keyboard ?? hovered)
@@ -155,7 +157,11 @@ struct PopoverView: View {
                     ScrollView {
                         sections(report)
                             .padding(.vertical, 6)
-                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listHeight = $0 }
+                            .onGeometryChange(for: CGFloat.self) {
+                                $0.size.height
+                            } action: {
+                                listHeight = $0
+                            }
                     }
                     .frame(height: min(listHeight, listCap))
                     .onChange(of: confirming, initial: true) { _, id in
@@ -384,7 +390,11 @@ struct PopoverView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     ForEach(items) { checklistRow($0, showingCommand: batch == nil && showingCommands) }
                 }
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { checklistHeight = $0 }
+                .onGeometryChange(for: CGFloat.self) {
+                    $0.size.height
+                } action: {
+                    checklistHeight = $0
+                }
             }
             .frame(height: min(checklistHeight, Self.checklistCap))
             .scrollIndicators(checklistHeight > Self.checklistCap ? .automatic : .never)
@@ -416,12 +426,13 @@ struct PopoverView: View {
     private static let checklistInset: CGFloat = 15
 
     private func checklistRow(_ item: Batch.Item, showingCommand: Bool) -> some View {
-        let (status, color): (String, Color) = switch item.status {
-        case .pending: (formatBytes(item.finding.bytes), .white)
-        case .cleaning: ("cleaning", Theme.green)
-        case .done: ("done", Theme.green)
-        case .notDone: ("not done", Theme.red)
-        }
+        let (status, color): (String, Color) =
+            switch item.status {
+            case .pending: (formatBytes(item.finding.bytes), .white)
+            case .cleaning: ("cleaning", Theme.green)
+            case .done: ("done", Theme.green)
+            case .notDone: ("not done", Theme.red)
+            }
         return VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("\(Text(item.finding.title)) \(Text(item.finding.category.singular).foregroundStyle(Theme.dim))")
@@ -483,10 +494,12 @@ struct PopoverView: View {
                 Button {
                     confirmingSafe = false
                     Task { await machine.cleanSafe() }
-                } label: { Text("Run \(Image(systemName: "return"))") }
-                    .foregroundStyle(Theme.green)
-                    .keyboardShortcut(.defaultAction)
-                    .accessibilityLabel("Run all \(count) safe cleanups")
+                } label: {
+                    Text("Run \(Image(systemName: "return"))")
+                }
+                .foregroundStyle(Theme.green)
+                .keyboardShortcut(.defaultAction)
+                .accessibilityLabel("Run all \(count) safe cleanups")
                 Button("Cancel") { confirmingSafe = false }
                     .keyboardShortcut(.cancelAction)
             }
@@ -513,7 +526,9 @@ struct PopoverView: View {
             ForEach(Array(monitor.machines.enumerated()), id: \.element.id) { index, device in
                 let on = device.id == machine.id
                 if index > 0 { Theme.line.frame(width: 1) }
-                Button { select(device) } label: {
+                Button {
+                    select(device)
+                } label: {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(device.name).font(.system(size: 12, weight: .semibold)).lineLimit(1).truncationMode(.middle)
                         Text(Self.status(device)).foregroundStyle(Self.statusColor(device)).monospacedDigit().lineLimit(1)
@@ -563,8 +578,10 @@ struct PopoverView: View {
             .opacity(0)
             .accessibilityHidden(true)
         }
-        .accessibilityLabel("\(machine.name), \(Self.statusInWords(machine)). "
-            + summaryParts.map(\.text).joined(separator: ", "))
+        .accessibilityLabel(
+            "\(machine.name), \(Self.statusInWords(machine)). "
+                + summaryParts.map(\.text).joined(separator: ", ")
+        )
         .accessibilityHint("Opens a menu of every machine")
     }
 
@@ -597,9 +614,12 @@ struct PopoverView: View {
         let menu = NSMenu()
         for (index, (device, status)) in rows.enumerated() {
             let title = NSMutableAttributedString(string: device.name + "\t", attributes: [.font: font, .paragraphStyle: tabs])
-            title.append(NSAttributedString(string: status, attributes: [
-                .font: font, .paragraphStyle: tabs, .foregroundColor: Self.menuStatusColor(device),
-            ]))
+            title.append(
+                NSAttributedString(
+                    string: status,
+                    attributes: [
+                        .font: font, .paragraphStyle: tabs, .foregroundColor: Self.menuStatusColor(device),
+                    ]))
             let item = ClosureMenuItem(title: device.name, keyEquivalent: index < 9 ? "\(index + 1)" : "") { select(device) }
             item.attributedTitle = title
             item.state = device.id == machine.id ? .on : .off
@@ -662,8 +682,9 @@ struct PopoverView: View {
     /// The limit is left out when the sum's last line already states it.
     private func heading(_ balance: Balance?) -> String {
         guard let disk = machine.disk else { return "Free space unknown" }
-        return freeSpace(disk.free, limitGB: machine.alertBelowGB, low: machine.isLow && balance?.after == nil,
-                         critical: machine.isCritical)
+        return freeSpace(
+            disk.free, limitGB: machine.alertBelowGB, low: machine.isLow && balance?.after == nil,
+            critical: machine.isCritical)
     }
 
     // MARK: Sections
@@ -751,8 +772,10 @@ struct PopoverView: View {
             .foregroundStyle(Theme.dim)
             .padding(.leading, FindingRow.textInset - 6)
             .padding(.trailing, 6)
-            .accessibilityLabel(isExpanded ? "Show fewer in \(category.label)"
-                                : "\(actionable.count - visible.count) more in \(category.label), \(formatBytes(hiddenBytes))")
+            .accessibilityLabel(
+                isExpanded
+                    ? "Show fewer in \(category.label)"
+                    : "\(actionable.count - visible.count) more in \(category.label), \(formatBytes(hiddenBytes))")
         }
 
         if kept.count > 1 { keptSummary(report, category, count: kept.count) }
@@ -760,31 +783,33 @@ struct PopoverView: View {
     }
 
     private func row(_ finding: Finding) -> some View {
-        FindingRow(finding: finding,
-                   host: machine.host,
-                   dockerInVM: machine.dockerInVM,
-                   hovered: hovered == finding.id,
-                   keyboardFocused: keyboardRow == finding.id,
-                   confirming: confirming == finding.id,
-                   cleaning: machine.cleaning[finding.id] != nil,
-                   rechecking: machine.rechecking.contains(finding.id),
-                   failure: machine.failures[finding.id],
-                   onActivate: { toggle(finding) },
-                   onRun: {
-                       confirming = nil
-                       Task { await machine.clean(finding) }
-                   },
-                   onCancel: { confirming = nil })
-            .id(finding.id)
-            .onHover { inside in
-                // The pointer takes over from the arrow keys, so only one highlight shows.
-                if inside {
-                    hovered = finding.id
-                    keyboardRow = nil
-                } else if hovered == finding.id {
-                    hovered = nil
-                }
+        FindingRow(
+            finding: finding,
+            host: machine.host,
+            dockerInVM: machine.dockerInVM,
+            hovered: hovered == finding.id,
+            keyboardFocused: keyboardRow == finding.id,
+            confirming: confirming == finding.id,
+            cleaning: machine.cleaning[finding.id] != nil,
+            rechecking: machine.rechecking.contains(finding.id),
+            failure: machine.failures[finding.id],
+            onActivate: { toggle(finding) },
+            onRun: {
+                confirming = nil
+                Task { await machine.clean(finding) }
+            },
+            onCancel: { confirming = nil }
+        )
+        .id(finding.id)
+        .onHover { inside in
+            // The pointer takes over from the arrow keys, so only one highlight shows.
+            if inside {
+                hovered = finding.id
+                keyboardRow = nil
+            } else if hovered == finding.id {
+                hovered = nil
             }
+        }
     }
 
     /// Opens a row's panel, or closes it if it is the one open: a click or Return.
@@ -818,7 +843,8 @@ struct PopoverView: View {
     /// handles the first press.
     private func openHighlighted() -> KeyPress.Result {
         guard confirming == nil, !confirmingSafe, let id = hovered,
-              let finding = machine.report?.findings.first(where: { $0.id == id }) else { return .ignored }
+            let finding = machine.report?.findings.first(where: { $0.id == id })
+        else { return .ignored }
         toggle(finding)
         return .handled
     }

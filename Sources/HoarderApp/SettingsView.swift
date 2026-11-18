@@ -76,7 +76,9 @@ struct SettingsView: View {
     }
 
     private func item(_ target: Page, @ViewBuilder _ label: () -> some View) -> some View {
-        Button { page = target } label: {
+        Button {
+            page = target
+        } label: {
             HStack(spacing: 0) { label() }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
@@ -270,9 +272,14 @@ private struct MachinePage: View {
     private var limit: some View {
         if let host = machine.host {
             let own = device?.alertBelowGB
-            Toggle("Own limit", isOn: Binding(get: { own != nil }, set: { on in
-                monitor.updateDevice(host) { $0.alertBelowGB = on ? monitor.config.alertBelowGB : nil }
-            }))
+            Toggle(
+                "Own limit",
+                isOn: Binding(
+                    get: { own != nil },
+                    set: { on in
+                        monitor.updateDevice(host) { $0.alertBelowGB = on ? monitor.config.alertBelowGB : nil }
+                    })
+            )
             .toggleStyle(.switch).controlSize(.small)
             if let own {
                 NumberField(value: own, unit: "GB", range: 1...10_000) { value in
@@ -417,10 +424,12 @@ private struct NumberField: View {
     let onChange: (Int) -> Void
 
     var body: some View {
-        let binding = Binding(get: { value }, set: { new in
-            let clamped = min(max(new, range.lowerBound), range.upperBound)
-            if clamped != value { onChange(clamped) }
-        })
+        let binding = Binding(
+            get: { value },
+            set: { new in
+                let clamped = min(max(new, range.lowerBound), range.upperBound)
+                if clamped != value { onChange(clamped) }
+            })
         HStack(spacing: 6) {
             TextField("", value: binding, format: .number)
                 .textFieldStyle(.roundedBorder)

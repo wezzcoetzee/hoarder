@@ -61,8 +61,9 @@ enum Snapshot {
         let state = try statePath.map { try JSONDecoder().decode(State.self, from: Data(contentsOf: URL(fileURLWithPath: $0))) } ?? State()
 
         let batch = state.batchDone.map { done in
-            var batch = Batch(items: (report?.findings ?? []).filter { $0.verdict == .reclaimable && $0.cleanup != nil }
-                .map { Batch.Item(finding: $0) })
+            var batch = Batch(
+                items: (report?.findings ?? []).filter { $0.verdict == .reclaimable && $0.cleanup != nil }
+                    .map { Batch.Item(finding: $0) })
             for index in batch.items.indices where index <= done {
                 batch.items[index].status = index < done ? .done : .cleaning
                 if index < done { report = report?.removing(batch.items[index].finding) }
@@ -75,25 +76,29 @@ enum Snapshot {
         config.alertBelowGB = state.alertBelowGB ?? config.alertBelowGB
         config.devices = (state.devices ?? []).map { Device(host: $0.host, alertBelowGB: $0.alertBelowGB, projectRoots: $0.projectRoots) }
         let disk = DiskSpace(free: Int64((state.freeGB ?? 22) * 1e9), total: 994_000_000_000)
-        let local = Machine(preview: nil, report: report, disk: disk, config: config,
-                            alertState: alertState(free: disk.free, limitGB: config.alertBelowGB,
-                                                   alerted: report != nil, snoozed: state.snoozed == true),
-                            scanning: state.scanning ?? false, cleaning: cleaningNames(cleaning, in: report),
-                            failures: state.failures ?? [:], lastCleaned: state.lastCleaned,
-                            lastFailed: state.lastFailed, problem: nil, batch: batch,
-                            scanned: Set(state.scanned ?? []))
+        let local = Machine(
+            preview: nil, report: report, disk: disk, config: config,
+            alertState: alertState(
+                free: disk.free, limitGB: config.alertBelowGB,
+                alerted: report != nil, snoozed: state.snoozed == true),
+            scanning: state.scanning ?? false, cleaning: cleaningNames(cleaning, in: report),
+            failures: state.failures ?? [:], lastCleaned: state.lastCleaned,
+            lastFailed: state.lastFailed, problem: nil, batch: batch,
+            scanned: Set(state.scanned ?? []))
         let devices = (state.devices ?? []).map { device in
             let disk = device.freeGB.map { DiskSpace(free: Int64($0 * 1e9), total: 226_000_000_000) }
             let limit = device.alertBelowGB ?? config.alertBelowGB
-            let machine = Machine(preview: device.host, report: nil, disk: disk, config: config,
-                                  alertState: alertState(free: disk?.free ?? .max, limitGB: limit, alerted: true, snoozed: false),
-                                  scanning: false, cleaning: [:], failures: [:], lastCleaned: nil, lastFailed: nil,
-                                  problem: device.problem, platform: platform(device.platform))
+            let machine = Machine(
+                preview: device.host, report: nil, disk: disk, config: config,
+                alertState: alertState(free: disk?.free ?? .max, limitGB: limit, alerted: true, snoozed: false),
+                scanning: false, cleaning: [:], failures: [:], lastCleaned: nil, lastFailed: nil,
+                problem: device.problem, platform: platform(device.platform))
             machine.device = config.devices.first { $0.host == device.host }
             return machine
         }
-        let monitor = Monitor(preview: [local] + devices, selected: Machine.localID, config: config,
-                              notificationsOff: state.notificationsOff ?? false)
+        let monitor = Monitor(
+            preview: [local] + devices, selected: Machine.localID, config: config,
+            notificationsOff: state.notificationsOff ?? false)
 
         _ = NSApplication.shared
         if let page = state.settings {
@@ -101,12 +106,13 @@ enum Snapshot {
             try write(SettingsView(monitor: monitor, page: target), to: output)
             return
         }
-        let popover = PopoverView(monitor: monitor, hovered: state.hovered, keyboard: state.keyboard,
-                                  confirming: state.confirming,
-                                  confirmingSafe: state.confirmingSafe ?? false,
-                                  showingCommands: state.showingCommands ?? false,
-                                  expanded: Set(state.expanded ?? []),
-                                  showingKept: Set(state.showingKept ?? []), listCap: state.full == true ? .infinity : 470)
+        let popover = PopoverView(
+            monitor: monitor, hovered: state.hovered, keyboard: state.keyboard,
+            confirming: state.confirming,
+            confirmingSafe: state.confirmingSafe ?? false,
+            showingCommands: state.showingCommands ?? false,
+            expanded: Set(state.expanded ?? []),
+            showingKept: Set(state.showingKept ?? []), listCap: state.full == true ? .infinity : 470)
         try write(popover, to: output)
         let label = MenuBarLabel(monitor: monitor)
             .padding(.horizontal, 10).frame(height: 24).background(Color(white: 0.16))

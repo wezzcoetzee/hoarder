@@ -5,11 +5,13 @@ enum Git {
     /// Every `.git` file or directory under the roots, without descending into dependency trees.
     static func dotGits(under roots: [String]) async -> [String] {
         guard !roots.isEmpty else { return [] }
-        let output = await Shell.run("find", roots + [
-            "-maxdepth", "6",
-            "(", "-name", "node_modules", "-o", "-name", ".build", "-o", "-name", "Library", ")", "-prune",
-            "-o", "-name", ".git", "-print0", "-prune",
-        ])
+        let output = await Shell.run(
+            "find",
+            roots + [
+                "-maxdepth", "6",
+                "(", "-name", "node_modules", "-o", "-name", ".build", "-o", "-name", "Library", ")", "-prune",
+                "-o", "-name", ".git", "-print0", "-prune",
+            ])
         return output.stdout.split(separator: "\0").map(String.init)
     }
 
@@ -20,7 +22,8 @@ enum Git {
         guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else { return nil }
         if isDirectory.boolValue { return standardize(path) }
         guard let contents = try? String(contentsOfFile: path, encoding: .utf8),
-              let line = contents.split(separator: "\n").first, line.hasPrefix("gitdir: ") else { return nil }
+            let line = contents.split(separator: "\n").first, line.hasPrefix("gitdir: ")
+        else { return nil }
         return resolve(String(line.dropFirst("gitdir: ".count)), relativeTo: (path as NSString).deletingLastPathComponent)
     }
 

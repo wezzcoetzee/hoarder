@@ -12,8 +12,9 @@ enum Entry {
         }
         MainActor.assumeIsolated {
             do {
-                try Snapshot.render(report: arguments[flag + 1], to: arguments[flag + 2],
-                                    state: arguments.count > flag + 3 ? arguments[flag + 3] : nil)
+                try Snapshot.render(
+                    report: arguments[flag + 1], to: arguments[flag + 2],
+                    state: arguments.count > flag + 3 ? arguments[flag + 3] : nil)
             } catch {
                 FileHandle.standardError.write(Data("snapshot failed: \(error)\n".utf8))
                 exit(1)
@@ -53,11 +54,12 @@ struct MenuBarLabel: View {
         // One low device is named, so the menu bar says which without opening the popover; a long
         // name gives way in the middle to keep the label short.
         let low = monitor.lowDevices
-        let text = switch low.count {
-        case 0: free
-        case 1: "\(free) · \(middleTruncated(low[0].name, to: 14)) low"
-        case let count: "\(free) · \(count) low"
-        }
+        let text =
+            switch low.count {
+            case 0: free
+            case 1: "\(free) · \(middleTruncated(low[0].name, to: 14)) low"
+            case let count: "\(free) · \(count) low"
+            }
         Group {
             if let color = warning {
                 Image(nsImage: tinted(label(text), color))
@@ -80,11 +82,12 @@ struct MenuBarLabel: View {
 
     private var spoken: String {
         let low = monitor.lowDevices
-        let others = switch low.count {
-        case 0: ""
-        case 1: ", \(low[0].name) low"
-        case let count: ", \(count) other devices low"
-        }
+        let others =
+            switch low.count {
+            case 0: ""
+            case 1: ", \(low[0].name) low"
+            case let count: ", \(count) other devices low"
+            }
         guard let disk = local.disk else { return "Hoarder, free space unknown" + others }
         return "Hoarder, " + freeSpace(disk.free, limitGB: local.alertBelowGB, low: local.isLow, critical: local.isCritical) + others
     }

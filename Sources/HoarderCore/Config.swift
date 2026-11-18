@@ -39,7 +39,7 @@ public struct Config: Codable, Sendable {
     /// Keys in a config file that Config does not know, such as a misspelling, which decoding ignores.
     public static func unknownKeys(in data: Data) -> [String] {
         guard let file = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let known = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(Config())) as? [String: Any]
+            let known = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(Config())) as? [String: Any]
         else { return [] }
         return file.keys.filter { known[$0] == nil }.sorted()
     }
@@ -48,7 +48,8 @@ public struct Config: Codable, Sendable {
     /// still reaches anyone who never touched that setting. Keys Config does not know are left as they
     /// are, so a misspelling stays visible instead of being silently dropped.
     public func save(to url: URL = fileURL) throws {
-        var file = (try? Data(contentsOf: url))
+        var file =
+            (try? Data(contentsOf: url))
             .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
         let mine = try Self.object(self), defaults = try Self.object(Config())
         for (key, value) in mine {
