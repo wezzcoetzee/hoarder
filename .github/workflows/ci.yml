@@ -10,4 +10,4 @@ jobs:
     uses: ./.github/workflows/linux-cli.yml
 
   macos:
-    uses: wezzcoetzee/.github/.github/workflows/macos-ci.yml@ci/macos-ci
+    uses: wezzcoetzee/.github/.github/workflows/macos-ci.yml@main
