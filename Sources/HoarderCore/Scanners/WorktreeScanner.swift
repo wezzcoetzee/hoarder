@@ -38,13 +38,14 @@ enum WorktreeScanner {
             .map { finding(for: $0, bytes: sizes[$0.entry.path] ?? 0, staleAfterDays: config.staleWorktreeDays) } + orphans
     }
 
-    /// Parses `git worktree list --porcelain -z`, dropping the first block: the main worktree.
-    /// NUL-separated, so a path containing a newline stays one path.
-    static func parse(porcelain: String) -> [Entry] {
+    /// Parses `git worktree list --porcelain`, dropping the first block: the main worktree. With `-z` the
+    /// lines end in NUL, so a path containing a newline stays one path; git before 2.36 has no `-z` and
+    /// ends them in newlines.
+    static func parse(porcelain: String, separator: Character = "\0") -> [Entry] {
         var entries: [Entry] = []
-        for block in porcelain.components(separatedBy: "\0\0") {
+        for block in porcelain.components(separatedBy: String(repeating: separator, count: 2)) {
             var entry: Entry?
-            for line in block.split(separator: "\0") {
+            for line in block.split(separator: separator) {
                 if line.hasPrefix("worktree ") {
                     entry = Entry(path: String(line.dropFirst("worktree ".count)))
                 } else if line.hasPrefix("branch refs/heads/") {
@@ -82,7 +83,13 @@ enum WorktreeScanner {
     /// Every linked worktree of a repo, or only the one at `only`.
     private static func inspect(gitDir: String, only: String? = nil) async -> [Worktree] {
         let listing = await git(gitDir, "worktree", "list", "--porcelain", "-z")
-        let entries = parse(porcelain: listing.stdout).filter { only == nil || $0.path == only }
+        let parsed = if listing.ok {
+            parse(porcelain: listing.stdout)
+        } else {
+            // Ubuntu 22.04's git (2.34) refuses -z.
+            parse(porcelain: await git(gitDir, "worktree", "list", "--porcelain").stdout, separator: "\n")
+        }
+        let entries = parsed.filter { only == nil || $0.path == only }
         guard !entries.isEmpty else { return [] }
 
         let base = await defaultBranch(gitDir)

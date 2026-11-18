@@ -13,6 +13,11 @@ import Testing
         .init(path: "/wt/new\nline", branch: "feat/x"),
         .init(path: "/wt/detached", branch: nil, locked: true),
     ])
+    // git before 2.36 has no -z: the same listing, newline-separated.
+    let lines = blocks.dropFirst().dropFirst().map { $0.joined(separator: "\n") + "\n" }.joined(separator: "\n")
+    #expect(WorktreeScanner.parse(porcelain: blocks[0].joined(separator: "\n") + "\n\n" + lines, separator: "\n") == [
+        .init(path: "/wt/detached", branch: nil, locked: true),
+    ])
 }
 
 @Test(arguments: [
