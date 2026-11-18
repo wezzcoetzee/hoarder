@@ -8,7 +8,7 @@ import SwiftUI
 @Observable @MainActor
 final class Machine: Identifiable {
     let id: String
-    /// "This Mac", or the device's SSH host.
+    /// "This Mac", or the device's SSH host without a tailnet suffix (`displayName`).
     let name: String
     /// Nil for this Mac.
     let host: String?
@@ -23,11 +23,22 @@ final class Machine: Identifiable {
     /// Rows being cleaned, with the name the header shows, kept here so a scan cannot drop the line.
     private(set) var cleaning: [Finding.ID: String] = [:]
     private(set) var alertState: AlertState
-    /// Why a clean failed, per row: the last line the command printed. Kept while the row exists.
-    private(set) var failures: [Finding.ID: String] = [:]
+    /// Why a clean failed, per row. Kept while the row exists.
+    private(set) var failures: [Finding.ID: Failure] = [:]
+    /// Rows refused since the popover opened. They keep their place in the list until it closes, even
+    /// once judged in use, so the row the header points at is where it was.
+    private(set) var refused: Set<Finding.ID> = []
+    /// Refused rows on a device, waiting for its rescan to judge them again.
+    private(set) var rechecking: Set<Finding.ID> = []
+    /// The Clean safe run in progress, for the header's checklist; nil when none is.
+    private(set) var batch: Batch?
+    /// Scanners finished in the scan running now, for the first scan's progress line. This Mac only.
+    private(set) var scanned: Set<HoarderCore.Category> = []
+    /// The section order when the first clean since the popover opened started; see `sectionOrder`.
+    private var frozenSections: [HoarderCore.Category]?
     /// "Cleaned X, 2.1 GB" after a clean succeeds, until the popover closes.
     private(set) var lastCleaned: String?
-    /// "Not cleaned: X, see its row" after a clean fails, until the popover closes.
+    /// "1 cleanup not done, see Worktrees" after a clean fails, until the popover closes.
     private(set) var lastFailed: String?
     private var lastFailedID: Finding.ID?
     /// Docker prunes free space inside a VM disk on macOS, and on the disk itself on Linux.
@@ -57,9 +68,16 @@ final class Machine: Identifiable {
         platform = Remote.Platform(os: "darwin", arch: Self.arch)
     }
 
+    /// What the popover and Settings call a device: its host without a tailnet or Bonjour suffix, so
+    /// "box.tail1234.ts.net" reads "box". The full host stays in `host`, for SSH and Settings' Host row.
+    static func displayName(_ host: String) -> String {
+        guard [".ts.net", ".local"].contains(where: host.hasSuffix) else { return host }
+        return String(host.prefix { $0 != "." })
+    }
+
     init(device: Device, build: Remote.Build) {
         id = device.host
-        name = device.host
+        name = Self.displayName(device.host)
         host = device.host
         remote = Remote(host: device.host, build: build)
         self.device = device
@@ -69,9 +87,12 @@ final class Machine: Identifiable {
     /// A still machine for `--snapshot`: shows the given state, never scans, alerts or cleans.
     init(preview host: String?, report: Report?, disk: DiskSpace?, config: Config, alertState: AlertState,
          scanning: Bool, cleaning: [Finding.ID: String], failures: [Finding.ID: String], lastCleaned: String?,
-         lastFailed: String?, problem: String?, platform: Remote.Platform? = nil) {
+         lastFailed: String?, problem: String?, platform: Remote.Platform? = nil, batch: Batch? = nil,
+         scanned: Set<HoarderCore.Category> = []) {
+        self.batch = batch
+        self.scanned = scanned
         id = host ?? Self.localID
-        name = host ?? "This Mac"
+        name = host.map(Self.displayName) ?? "This Mac"
         self.host = host
         remote = nil
         self.report = report
@@ -80,7 +101,8 @@ final class Machine: Identifiable {
         self.alertState = alertState
         self.scanning = scanning
         self.cleaning = cleaning
-        self.failures = failures
+        self.failures = failures.mapValues { Failure(reason: describeFailure($0), output: $0) }
+        refused = Set(failures.keys)
         self.lastCleaned = lastCleaned
         self.lastFailed = lastFailed
         connectionProblem = problem
@@ -114,9 +136,12 @@ final class Machine: Identifiable {
 
     var alertBelowGB: Int { config.alertBelowGB(for: device) }
     private var alertLimitBytes: Int64 { Int64(alertBelowGB) * 1_000_000_000 }
-    var isLow: Bool { disk.map { $0.free < alertLimitBytes } ?? false }
-    /// Under a quarter of the limit: the heading and menu bar turn red.
-    var isCritical: Bool { disk.map { $0.free < alertLimitBytes / 4 } ?? false }
+    var isLow: Bool { disk.map { isLow($0.free) } ?? false }
+    /// Under a quarter of the limit: the heading and menu bar turn red and say "critically low".
+    var isCritical: Bool { disk.map { isCritical($0.free) } ?? false }
+    /// The same tests for a free figure other than the current one, such as after Clean safe.
+    func isLow(_ free: Int64) -> Bool { free < alertLimitBytes }
+    func isCritical(_ free: Int64) -> Bool { free < alertLimitBytes / 4 }
 
     func isScanDue(now: Date = .now) -> Bool {
         guard !scanning else { return false }
@@ -128,6 +153,7 @@ final class Machine: Identifiable {
         scanning = true
         lastScanStart = .now
         cleanedDuringScan = []
+        scanned = []
         let fresh: Report
         if let remote {
             do {
@@ -141,7 +167,9 @@ final class Machine: Identifiable {
                 return
             }
         } else {
-            fresh = await Hoarder.scan(config: config)
+            fresh = await Hoarder.scan(config: config) { category in
+                Task { @MainActor in self.scanned.insert(category) }
+            }
         }
         let current = cleanedDuringScan.reduce(fresh) { report, id in
             report.findings.first { $0.id == id }.map(report.removing) ?? report
@@ -155,8 +183,28 @@ final class Machine: Identifiable {
             let now = current.findings.first { $0.id == id }
             lastFailed = now.map { "Not cleaned: \($0.fullName), now in use: \($0.detail)" }
         }
+        rechecking = []
+        frozenSections = nil
         scanning = false
         await refreshDisk()
+    }
+
+    /// Sections with the most that is safe to clean come first, so the top section is where to start.
+    /// Docker goes last: its prunes free space inside Docker's disk, not on the Mac right away. Once a
+    /// clean starts, the order holds until the popover closes or a scan lands, so the section being
+    /// worked in never moves while you are in it.
+    func sectionOrder(_ report: Report) -> [HoarderCore.Category] {
+        let fresh = Self.rankedSections(report)
+        guard let frozenSections else { return fresh }
+        return frozenSections.filter(fresh.contains) + fresh.filter { !frozenSections.contains($0) }
+    }
+
+    private static func rankedSections(_ report: Report) -> [HoarderCore.Category] {
+        HoarderCore.Category.allCases
+            .filter { category in report.findings.contains { $0.category == category } }
+            .map { ($0, report.total(.reclaimable, in: $0), report.total(.review, in: $0)) }
+            .sorted { ($0.0 == .docker ? 0 : 1, $0.1, $0.2) > ($1.0 == .docker ? 0 : 1, $1.1, $1.2) }
+            .map(\.0)
     }
 
     /// What "Clean all safe" runs.
@@ -165,29 +213,53 @@ final class Machine: Identifiable {
     }
 
     /// Cleans every safe row in turn rather than at once, so a worktree and the node_modules inside it
-    /// never race. Rows an earlier clean took with it (nested node_modules) are skipped.
+    /// never race. A row an earlier clean took with it (nested node_modules) counts as done. Stop takes
+    /// effect between rows: the running command finishes, since killing git or docker halfway could
+    /// leave a mess.
     func cleanSafe() async {
+        let rows = safeToClean
+        guard batch == nil, !rows.isEmpty else { return }
+        batch = Batch(items: rows.map { Batch.Item(finding: $0) })
         var cleaned = 0
         var freed: Int64 = 0
-        for id in safeToClean.map(\.id) {
+        var stoppedAfter: Int?
+        for (index, row) in rows.enumerated() {
+            if batch?.stopping == true {
+                stoppedAfter = index
+                break
+            }
             // The current row: cleaning one inside it may have shrunk it.
-            guard let finding = report?.findings.first(where: { $0.id == id }) else { continue }
-            if await clean(finding) {
+            guard let finding = report?.findings.first(where: { $0.id == row.id }) else {
+                batch?.items[index].status = .done
+                cleaned += 1
+                continue
+            }
+            batch?.items[index].status = .cleaning
+            let done = await clean(finding)
+            batch?.items[index].status = done ? .done : .notDone
+            if done {
                 cleaned += 1
                 freed += finding.bytes
             }
         }
+        batch = nil
         // One row keeps that row's own line.
-        if cleaned > 1 {
-            let message = "Cleaned \(cleaned) safe rows, \(formatBytes(freed))"
-            lastCleaned = message
-            AccessibilityNotification.Announcement(message).post()
-        }
+        guard rows.count > 1 else { return }
+        let message = stoppedAfter.map { "Stopped after \($0) of \(rows.count), \(formatBytes(freed)) cleaned" }
+            ?? "Cleaned \(cleaned) of \(rows.count), \(formatBytes(freed))"
+        lastCleaned = message
+        AccessibilityNotification.Announcement(message).post()
+    }
+
+    /// Finishes the running cleanup, then starts no more.
+    func stopCleanSafe() {
+        batch?.stopping = true
     }
 
     @discardableResult
     func clean(_ finding: Finding) async -> Bool {
         guard cleaning[finding.id] == nil else { return false }
+        if frozenSections == nil, let report { frozenSections = Self.rankedSections(report) }
         cleaning[finding.id] = finding.fullName
         failures[finding.id] = nil
         let result = if let remote, let command = finding.cleanup {
@@ -196,36 +268,74 @@ final class Machine: Identifiable {
             await Hoarder.clean(finding)
         }
         cleaning[finding.id] = nil
+        var done = result.ok
         if result.ok {
-            report = report?.removing(finding)
-            if scanning { cleanedDuringScan.insert(finding.id) }
             // In a VM, Docker frees space inside its disk; the host gets it back only after the VM trims.
             let size = formatBytes(finding.bytes)
-            let message = finding.bytes == 0 ? "Cleaned \(finding.fullName)"
+            finish(finding, saying: finding.bytes == 0 ? "Cleaned \(finding.fullName)"
                 : finding.category == .docker && dockerInVM ? "Cleaned \(finding.fullName): \(size) freed inside Docker's disk"
-                : "Cleaned \(finding.fullName), \(size)"
-            lastCleaned = message
-            AccessibilityNotification.Announcement(message).post()
+                : "Cleaned \(finding.fullName), \(size)")
         } else {
-            let lastLine = result.output.split(separator: "\n").last.map(String.init) ?? "exited with an error"
-            let reason = ["fatal: ", "error: "].reduce(lastLine) { line, prefix in
-                line.hasPrefix(prefix) ? String(line.dropFirst(prefix.count)) : line
-            }
-            failures[finding.id] = String(reason.prefix(240))
-            lastFailed = "Not cleaned: \(finding.fullName), see its row"
+            let failure = Failure(reason: describeFailure(result.output), output: result.output)
+            failures[finding.id] = failure
+            refused.insert(finding.id)
             lastFailedID = finding.id
-            AccessibilityNotification.Announcement("\(finding.fullName) not cleaned").post()
-            // git refuses a worktree that changed since the scan; a rescan shows it as kept, with why.
-            if finding.category == .worktree { Task { await scan() } }
+            done = await recheck(finding)
+            if !done { AccessibilityNotification.Announcement("\(finding.fullName) not cleaned: \(failure.reason)").post() }
         }
+        lastFailed = refusalSummary
         await refreshDisk()
-        return result.ok
+        return done
     }
 
-    /// The outcome lines have been seen once the popover closes.
+    /// The row leaves the list and the header says what happened.
+    private func finish(_ finding: Finding, saying message: String) {
+        report = report?.removing(finding)
+        if scanning { cleanedDuringScan.insert(finding.id) }
+        failures[finding.id] = nil
+        refused.remove(finding.id)
+        lastCleaned = message
+        AccessibilityNotification.Announcement(message).post()
+    }
+
+    /// git refuses a worktree that changed since the scan. On this Mac that worktree is read again at
+    /// once, so its row shows the new verdict and command where it stands. A device has no single-row
+    /// check, so it rescans and the row says "checking again" until then. True when the folder turned
+    /// out to be gone, which counts as cleaned.
+    private func recheck(_ finding: Finding) async -> Bool {
+        guard finding.category == .worktree else { return false }
+        guard remote == nil else {
+            rechecking.insert(finding.id)
+            Task { await scan() }
+            return false
+        }
+        switch await Hoarder.recheck(finding, config: config) {
+        case .gone:
+            finish(finding, saying: "Already gone: \(finding.fullName)")
+            return true
+        case .judged(let fresh):
+            report = report?.replacing(fresh)
+        case .unchecked:
+            break
+        }
+        return false
+    }
+
+    /// "1 cleanup not done, see Worktrees", while refused rows are in view.
+    private var refusalSummary: String? {
+        let rows = report?.findings.filter { refused.contains($0.id) && failures[$0.id] != nil } ?? []
+        guard let first = rows.first else { return nil }
+        let count = rows.count == 1 ? "1 cleanup" : "\(rows.count) cleanups"
+        let place = rows.allSatisfy { $0.category == first.category } ? first.category.label : "their rows"
+        return "\(count) not done, see \(place)"
+    }
+
+    /// The outcome lines have been seen once the popover closes, and refused rows rejoin their group.
     func dismissCleaned() {
         lastCleaned = nil
         lastFailed = nil
+        refused = []
+        frozenSections = nil
     }
 
     func snooze() {
@@ -277,4 +387,29 @@ final class Machine: Identifiable {
     private func saveAlertState() {
         UserDefaults.standard.set(try? JSONEncoder().encode(alertState), forKey: Self.alertStateKey(id: id))
     }
+}
+
+/// A refused cleanup: what its row says, and the command's own output for the row's tooltip.
+struct Failure: Equatable {
+    let reason: String
+    let output: String
+}
+
+/// A Clean safe run: the rows it set out to clean, as they were when it started, and how each went.
+/// Rows leave the report as they finish, so the header's checklist names them from here.
+struct Batch {
+    enum Status { case pending, cleaning, done, notDone }
+
+    struct Item: Identifiable {
+        let finding: Finding
+        var status = Status.pending
+        var id: Finding.ID { finding.id }
+    }
+
+    var items: [Item]
+    /// Stop was pressed; the running row finishes and no other starts.
+    var stopping = false
+
+    /// Rows finished either way, so "3 of 11" names the one running.
+    var finished: Int { items.filter { $0.status == .done || $0.status == .notDone }.count }
 }

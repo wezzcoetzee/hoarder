@@ -25,14 +25,23 @@ enum Snapshot {
         var scanning: Bool?
         var snoozed: Bool?
         var hovered: Finding.ID?
+        /// The row the arrow keys moved to, drawn with its ring.
+        var keyboard: Finding.ID?
         var confirming: Finding.ID?
-        /// "Clean all safe" pressed, showing Run.
+        /// Clean safe pressed, showing its checklist and Run.
         var confirmingSafe: Bool?
+        /// Scanners finished so far, for the first scan's progress line (with `none` as the report).
+        var scanned: [HoarderCore.Category]?
+        /// Clean safe's checklist opened to show each row's command.
+        var showingCommands: Bool?
+        /// Clean safe running, with this many rows finished (and gone from the list) and the next cleaning.
+        var batchDone: Int?
         var cleaning: Finding.ID?
         var expanded: [HoarderCore.Category]?
         /// Sections whose "N in use" row is open.
         var showingKept: [HoarderCore.Category]?
-        /// Finding id to the error shown under that row.
+        /// Finding id to the command's output; the row shows it as `describeFailure` words it, and keeps
+        /// its place as a row refused since the popover opened.
         var failures: [Finding.ID: String]?
         var lastCleaned: String?
         var lastFailed: String?
@@ -48,8 +57,19 @@ enum Snapshot {
     static func render(report path: String, to output: String, state statePath: String?) throws {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        let report = path == "none" ? nil : try decoder.decode(Report.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
+        var report = path == "none" ? nil : try decoder.decode(Report.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
         let state = try statePath.map { try JSONDecoder().decode(State.self, from: Data(contentsOf: URL(fileURLWithPath: $0))) } ?? State()
+
+        let batch = state.batchDone.map { done in
+            var batch = Batch(items: (report?.findings ?? []).filter { $0.verdict == .reclaimable && $0.cleanup != nil }
+                .map { Batch.Item(finding: $0) })
+            for index in batch.items.indices where index <= done {
+                batch.items[index].status = index < done ? .done : .cleaning
+                if index < done { report = report?.removing(batch.items[index].finding) }
+            }
+            return batch
+        }
+        let cleaning = state.cleaning ?? batch?.items.first { $0.status == .cleaning }?.id
 
         var config = Config()
         config.alertBelowGB = state.alertBelowGB ?? config.alertBelowGB
@@ -58,9 +78,10 @@ enum Snapshot {
         let local = Machine(preview: nil, report: report, disk: disk, config: config,
                             alertState: alertState(free: disk.free, limitGB: config.alertBelowGB,
                                                    alerted: report != nil, snoozed: state.snoozed == true),
-                            scanning: state.scanning ?? false, cleaning: cleaningNames(state.cleaning, in: report),
+                            scanning: state.scanning ?? false, cleaning: cleaningNames(cleaning, in: report),
                             failures: state.failures ?? [:], lastCleaned: state.lastCleaned,
-                            lastFailed: state.lastFailed, problem: nil)
+                            lastFailed: state.lastFailed, problem: nil, batch: batch,
+                            scanned: Set(state.scanned ?? []))
         let devices = (state.devices ?? []).map { device in
             let disk = device.freeGB.map { DiskSpace(free: Int64($0 * 1e9), total: 226_000_000_000) }
             let limit = device.alertBelowGB ?? config.alertBelowGB
@@ -80,8 +101,10 @@ enum Snapshot {
             try write(SettingsView(monitor: monitor, page: target), to: output)
             return
         }
-        let popover = PopoverView(monitor: monitor, hovered: state.hovered, confirming: state.confirming,
+        let popover = PopoverView(monitor: monitor, hovered: state.hovered, keyboard: state.keyboard,
+                                  confirming: state.confirming,
                                   confirmingSafe: state.confirmingSafe ?? false,
+                                  showingCommands: state.showingCommands ?? false,
                                   expanded: Set(state.expanded ?? []),
                                   showingKept: Set(state.showingKept ?? []), listCap: state.full == true ? .infinity : 470)
         try write(popover, to: output)

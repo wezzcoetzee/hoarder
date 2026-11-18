@@ -104,6 +104,58 @@ private func finding(_ path: String, _ bytes: Int64) -> Finding {
     #expect(afterModules.findings.map(\.bytes) == [60, 5])
 }
 
+@Test(arguments: [
+    ("fatal: '/Users/dev/.worktrees/a' contains modified or untracked files, use --force to delete it",
+     "it has uncommitted changes now"),
+    ("fatal: cannot remove a locked working tree, lock reason: agent\nuse 'remove -f -f' to override or unlock first",
+     "it was locked since the scan"),
+    ("Error response from daemon: remove storefront_pgdata: volume is in use - [3f2a]", "a container is using it now"),
+    ("Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?",
+     "Docker is not running"),
+    ("zsh:1: command not found: pnpm", "pnpm is not on the login shell's PATH"),
+    ("bash: pnpm: command not found", "pnpm is not on the login shell's PATH"),
+    ("rm: /home/dev/.cache/go-build/0a: Permission denied\n", "rm: ~/.cache/go-build/0a: Permission denied"),
+    ("", "exited with an error"),
+])
+func describesFailuresInPlainWords(output: String, expected: String) {
+    #expect(describeFailure(output) == expected)
+}
+
+/// The refusal case end to end, against a real repo: a merged worktree that an agent touched after the
+/// scan comes back kept, with the --force command, and one whose folder went is gone.
+@Test func recheckingARefusedWorktreeJudgesItAgain() async throws {
+    let made = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).path
+    try FileManager.default.createDirectory(atPath: made + "/repo", withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(atPath: made) }
+    // Rows carry the paths git prints, which are real paths; macOS's temporary folder is behind /var.
+    let base = realpath(made, nil).map { pointer in
+        defer { free(pointer) }
+        return String(cString: pointer)
+    } ?? made
+    let repo = base + "/repo", worktree = base + "/wt"
+    for arguments in [["init", "-q", "-b", "main"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"],
+                      ["worktree", "add", "-q", worktree, "-b", "feature"]] {
+        #expect(await Shell.run("git", ["-C", repo] + arguments, includeErrors: true).ok)
+    }
+    try "edit".write(toFile: worktree + "/notes.txt", atomically: true, encoding: .utf8)
+    let scanned = Finding(category: .worktree, title: "repo · feature", detail: "merged, 20d old", paths: [worktree],
+                          bytes: 42, lastActivity: nil, verdict: .reclaimable, cleanup: "git worktree remove '\(worktree)'")
+
+    guard case .judged(let fresh) = await Hoarder.recheck(scanned, config: Config()) else {
+        Issue.record("expected the worktree to be judged again")
+        return
+    }
+    #expect(fresh.verdict == .keep && fresh.detail == "uncommitted changes" && fresh.bytes == 42)
+    #expect(fresh.cleanup?.contains("worktree remove --force") == true)
+    #expect(fresh.id == scanned.id)
+
+    try FileManager.default.removeItem(atPath: worktree)
+    guard case .gone = await Hoarder.recheck(scanned, config: Config()) else {
+        Issue.record("expected a removed folder to be gone")
+        return
+    }
+}
+
 @Test func alertsOncePerDipAndAgainAfterSnooze() {
     let gb: Int64 = 1_000_000_000
     let limit = 40 * gb

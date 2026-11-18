@@ -72,9 +72,17 @@ enum WorktreeScanner {
         return (.review, "unmerged\(unpushed), \(age)d old")
     }
 
-    private static func inspect(gitDir: String) async -> [Worktree] {
+    /// One worktree read again, as its row; nil when git no longer lists it.
+    static func recheck(path: String, bytes: Int64, staleAfterDays: Int) async -> Finding? {
+        guard let gitDir = Git.commonDir(forDotGit: path + "/.git"),
+              let worktree = await inspect(gitDir: gitDir, only: path).first else { return nil }
+        return finding(for: worktree, bytes: bytes, staleAfterDays: staleAfterDays)
+    }
+
+    /// Every linked worktree of a repo, or only the one at `only`.
+    private static func inspect(gitDir: String, only: String? = nil) async -> [Worktree] {
         let listing = await git(gitDir, "worktree", "list", "--porcelain", "-z")
-        let entries = parse(porcelain: listing.stdout)
+        let entries = parse(porcelain: listing.stdout).filter { only == nil || $0.path == only }
         guard !entries.isEmpty else { return [] }
 
         let base = await defaultBranch(gitDir)

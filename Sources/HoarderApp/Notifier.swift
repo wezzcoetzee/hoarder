@@ -27,7 +27,8 @@ enum Notifier {
     @MainActor
     static func lowDisk(on machine: Machine, free: Int64) {
         guard available else { return }
-        let title = (machine.host.map { "\($0): " } ?? "") + freeSpace(free, limitGB: machine.alertBelowGB, low: true)
+        let sentence = freeSpace(free, limitGB: machine.alertBelowGB, low: true, critical: machine.isCritical(free))
+        let title = (machine.host.map { "\($0): " } ?? "") + sentence
         let body = machine.report.map { suggestion($0, dockerInVM: machine.dockerInVM) } ?? "Open Hoarder to see what can go."
         let identifier = machine.host.map { "low-disk-\($0)" } ?? "low-disk"
         Task {
@@ -54,8 +55,10 @@ extension Finding {
 }
 
 /// The one free-space sentence: popover heading, notification title, and the menu bar's spoken label.
-func freeSpace(_ free: Int64, limitGB: Int, low: Bool) -> String {
-    low ? "\(gigabytes(free)) free, under your \(limitGB) GB limit" : "\(gigabytes(free)) free"
+/// Critical says so in words, so it differs from low by more than its red.
+func freeSpace(_ free: Int64, limitGB: Int, low: Bool, critical: Bool) -> String {
+    if critical { return "\(gigabytes(free)) free, critically low" }
+    return low ? "\(gigabytes(free)) free, under your \(limitGB) GB limit" : "\(gigabytes(free)) free"
 }
 
 /// What to clean first. In a VM, a Docker prune frees space inside Docker's disk rather than on the

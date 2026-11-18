@@ -86,6 +86,12 @@ public extension Report {
         }
         return Report(findings: rest, notes: notes, scannedAt: scannedAt, duration: duration)
     }
+
+    /// The report with one row swapped for a newer reading of it, in the same place.
+    func replacing(_ finding: Finding) -> Report {
+        Report(findings: findings.map { $0.id == finding.id ? finding : $0 }, notes: notes, scannedAt: scannedAt,
+               duration: duration)
+    }
 }
 
 /// One format for every size: whole MB under 1 GB, otherwise GB to one decimal, so a column of sizes lines up.
