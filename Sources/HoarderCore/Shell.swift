@@ -39,6 +39,9 @@ enum Shell {
                 // fails from the app but not a terminal.
                 environment["TERM"] = environment["TERM"] ?? "dumb"
                 process.environment = environment
+                // Apps launched by launchd also start in "/", which is read-only on macOS. Some tools write
+                // temp files to their working directory (pnpm's store link check), so run from home instead.
+                process.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
                 let pipe = Pipe(), errors = Pipe()
                 process.standardOutput = pipe
                 process.standardError = includeErrors ? pipe : errors
