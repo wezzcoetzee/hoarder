@@ -71,7 +71,6 @@ public struct Config: Codable, Sendable {
         return try encode(a) == encode(b)
     }
 
-    /// Writes the defaults so there is a file to edit. Leaves an existing file alone.
     public static func writeDefaultsIfMissing() throws {
         guard !exists(fileURL.path) else { return }
         try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -80,9 +79,6 @@ public struct Config: Codable, Sendable {
         try encoder.encode(Config()).write(to: fileURL)
     }
 
-    public var alertLimitBytes: Int64 { Int64(alertBelowGB) * 1_000_000_000 }
-
-    /// The free-space limit for a device: its own, else the one for this Mac.
     public func alertBelowGB(for device: Device?) -> Int {
         device?.alertBelowGB ?? alertBelowGB
     }

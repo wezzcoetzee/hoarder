@@ -209,7 +209,6 @@ final class Machine: Identifiable {
             .map(\.0)
     }
 
-    /// What "Clean all safe" runs.
     var safeToClean: [Finding] {
         report?.findings.filter { $0.verdict == .reclaimable && $0.cleanup != nil } ?? []
     }
@@ -254,7 +253,6 @@ final class Machine: Identifiable {
         AccessibilityNotification.Announcement(message).post()
     }
 
-    /// Finishes the running cleanup, then starts no more.
     func stopCleanSafe() {
         batch?.stopping = true
     }
@@ -296,7 +294,6 @@ final class Machine: Identifiable {
         return done
     }
 
-    /// The row leaves the list and the header says what happened.
     private func finish(_ finding: Finding, saying message: String) {
         report = report?.removing(finding)
         if scanning { cleanedDuringScan.insert(finding.id) }

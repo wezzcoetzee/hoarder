@@ -49,7 +49,6 @@ final class Monitor {
     /// Mac's free space.
     var lowDevices: [Machine] { machines.dropFirst().filter(\.isLow) }
 
-    /// Rescans the machine the popover shows.
     func scan() async {
         loadConfig()
         await selected.scan()

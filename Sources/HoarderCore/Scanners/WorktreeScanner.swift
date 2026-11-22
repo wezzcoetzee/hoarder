@@ -59,7 +59,6 @@ enum WorktreeScanner {
         return Array(entries.dropFirst())
     }
 
-    /// Checked in order: orphan, hold (dirty, locked, recent), merged, stale.
     static func classify(_ worktree: Worktree, staleAfterDays: Int, now: Date = .now) -> (Verdict, String) {
         let age = worktree.tip.map { days(since: $0, now: now) } ?? 0
         if !worktree.present && !worktree.entry.locked {

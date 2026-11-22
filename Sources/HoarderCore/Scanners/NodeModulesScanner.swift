@@ -35,7 +35,7 @@ enum NodeModulesScanner {
     }
 
     /// Nearest ancestor holding a `.git`, or the folder's parent when there is none.
-    static func projectRoot(of nodeModules: String, stoppingAt roots: [String]) -> String {
+    private static func projectRoot(of nodeModules: String, stoppingAt roots: [String]) -> String {
         let parent = (nodeModules as NSString).deletingLastPathComponent
         var directory = parent
         while !roots.contains(directory), directory != "/" {

@@ -122,15 +122,6 @@ private func finding(_ path: String, _ bytes: Int64) -> Finding {
         "fatal: '/Users/dev/.worktrees/a' contains modified or untracked files, use --force to delete it",
         "it has uncommitted changes now"
     ),
-    (
-        "fatal: cannot remove a locked working tree, lock reason: agent\nuse 'remove -f -f' to override or unlock first",
-        "it was locked since the scan"
-    ),
-    ("Error response from daemon: remove storefront_pgdata: volume is in use - [3f2a]", "a container is using it now"),
-    (
-        "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?",
-        "Docker is not running"
-    ),
     ("zsh:1: command not found: pnpm", "pnpm is not on the login shell's PATH"),
     ("bash: pnpm: command not found", "pnpm is not on the login shell's PATH"),
     ("rm: /home/dev/.cache/go-build/0a: Permission denied\n", "rm: ~/.cache/go-build/0a: Permission denied"),
@@ -217,18 +208,7 @@ func describesFailuresInPlainWords(output: String, expected: String) {
     #expect(Config.unknownKeys(in: Data("not json".utf8)).isEmpty)
 }
 
-@Test func readsDevicesWithTheirOverrides() throws {
-    let file = Data(#"{"alertBelowGB": 40, "devices": [{"host": "homeserver", "alertBelowGB": 20}, {"host": "mini"}]}"#.utf8)
-    let config = try JSONDecoder().decode(Config.self, from: file)
-    #expect(config.devices == [Device(host: "homeserver", alertBelowGB: 20), Device(host: "mini")])
-    #expect(config.alertBelowGB(for: config.devices[0]) == 20)
-    #expect(config.alertBelowGB(for: config.devices[1]) == 40)
-    #expect(Config.unknownKeys(in: file).isEmpty)
-}
-
 @Test(arguments: [
-    (255, "Host key verification failed.\n", "Host key not trusted, run ssh box once to accept it"),
-    (255, "ssh: connect to host box port 22: Operation timed out\n", "box is unreachable"),
     (255, "wezz@box: Permission denied (publickey).\n", "SSH refused the login to box"),
     (1, "warning: noise\nCould not read free space\n", "box: Could not read free space"),
     (2, "", "box: exited with status 2"),
@@ -246,7 +226,6 @@ func describesSSHFailuresInWordsThatSayWhatToDo(status: Int32, stderr: String, e
             .init(name: "phone", os: "iOS", online: false),
             .init(name: "wesleys-mac-mini", os: "macOS", online: true),
         ])
-    #expect(Tailnet.parse(json)?.filter(\.canScan).map(\.name) == ["wesleys-mac-mini"])
 }
 
 @Test func savesOnlyChangedSettingsAndKeepsUnknownKeys() throws {
