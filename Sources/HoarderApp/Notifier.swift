@@ -15,7 +15,6 @@ enum Notifier {
         Task { _ = try? await center.requestAuthorization(options: [.alert, .sound]) }
     }
 
-    /// Whether the user turned Hoarder's notifications off in System Settings.
     static func isDenied() async -> Bool {
         guard available else { return false }
         return await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .denied

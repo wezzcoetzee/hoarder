@@ -18,7 +18,6 @@ enum Snapshot {
         var projectRoots: [String]?
     }
 
-    /// Every key is optional.
     struct State: Decodable {
         var freeGB: Double?
         var alertBelowGB: Int?

@@ -62,6 +62,17 @@ func openDocker() -> (() -> Void)? {
     return { NSWorkspace.shared.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration()) }
 }
 
+/// "just now", "5 min ago", "3 h ago", "2 d ago".
+func ago(_ date: Date, now: Date = .now) -> String {
+    let minutes = Int(now.timeIntervalSince(date) / 60)
+    switch minutes {
+    case ..<1: return "just now"
+    case ..<60: return "\(minutes) min ago"
+    case ..<1440: return "\(minutes / 60) h ago"
+    default: return "\(minutes / 1440) d ago"
+    }
+}
+
 /// A command as it runs: another device's goes over SSH.
 func runnableCommand(_ command: String, on host: String?) -> String {
     host.map { "ssh \($0) \(shellQuote(command))" } ?? command
@@ -96,7 +107,7 @@ struct PopoverView: View {
     @Environment(\.openSettings) private var openSettings
     @State private var hovered: Finding.ID?
     @State private var confirming: Finding.ID?
-    /// "Clean all safe" was pressed and waits for Run.
+    /// Clean safe was pressed and waits for Run.
     @State private var confirmingSafe = false
     /// The open row's verdict and command when it was opened, to notice a scan changing them.
     @State private var confirmedAs: String?
@@ -137,8 +148,6 @@ struct PopoverView: View {
         _showingKept = State(initialValue: showingKept)
     }
 
-    /// The device the popover shows. With no devices configured it is always this Mac and the strip
-    /// is hidden, so the popover looks as it did before devices existed.
     private var machine: Machine { monitor.selected }
 
     var body: some View {
@@ -454,8 +463,6 @@ struct PopoverView: View {
         .padding(.leading, Self.checklistInset)
     }
 
-    /// "Clean safe" on the heading's line, then a line under the checklist saying what Run does. Hidden
-    /// while anything is cleaning.
     private var canStartCleanSafe: Bool {
         !confirmingSafe && !machine.safeToClean.isEmpty && machine.cleaning.isEmpty
     }
@@ -469,18 +476,15 @@ struct PopoverView: View {
     @ViewBuilder
     private var cleanSafeButton: some View {
         if canStartCleanSafe {
-            Button(action: startCleanSafe) {
-                // The same words as the sum's "After Clean safe".
-                Text("Clean safe")
-            }
-            .buttonStyle(TextButtonStyle())
-            .foregroundStyle(Theme.green)
-            // ⇧⌘C, then Return: Clean safe without the pointer.
-            .keyboardShortcut("c", modifiers: [.command, .shift])
-            .help("Lists what it will run first (⇧⌘C)")
-            .accessibilityHint("Lists the \(machine.safeToClean.count) cleanups it will run, then asks. Shift-Command-C")
-            .padding(.vertical, -5)
-            .padding(.trailing, -6)
+            Button("Clean safe", action: startCleanSafe)
+                .buttonStyle(TextButtonStyle())
+                .foregroundStyle(Theme.green)
+                // ⇧⌘C, then Return: Clean safe without the pointer.
+                .keyboardShortcut("c", modifiers: [.command, .shift])
+                .help("Lists what it will run first (⇧⌘C)")
+                .accessibilityHint("Lists the \(machine.safeToClean.count) cleanups it will run, then asks. Shift-Command-C")
+                .padding(.vertical, -5)
+                .padding(.trailing, -6)
         }
     }
 
@@ -951,14 +955,7 @@ struct PopoverView: View {
     }
 
     private func scannedLabel(now: Date) -> String {
-        guard let report = machine.report else { return "" }
-        let minutes = Int(now.timeIntervalSince(report.scannedAt) / 60)
-        switch minutes {
-        case ..<1: return "Scanned just now"
-        case ..<60: return "Scanned \(minutes) min ago"
-        case ..<1440: return "Scanned \(minutes / 60) h ago"
-        default: return "Scanned \(minutes / 1440) d ago"
-        }
+        machine.report.map { "Scanned \(ago($0.scannedAt, now: now))" } ?? ""
     }
 }
 
@@ -1012,7 +1009,6 @@ struct FindingRow: View {
     private var cleanable: Bool { finding.cleanup != nil }
     private var kept: Bool { finding.verdict == .keep }
 
-    /// Another device's command, as the SSH hop that runs it there.
     private var displayedCommand: String? {
         finding.cleanup.map { runnableCommand($0, on: host) }
     }
@@ -1025,7 +1021,6 @@ struct FindingRow: View {
         return nil
     }
 
-    /// Clean and Run: the verdict's colour, grey on a kept row, red when the command forces.
     private var actionColor: Color {
         forceWarning != nil ? Theme.red : kept ? Theme.keptTitle : Theme.color(finding.verdict)
     }
@@ -1126,8 +1121,8 @@ struct FindingRow: View {
 
     private var panel: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if cleanable, finding.cleanup?.hasPrefix("docker volume prune") == true {
-                Text("Deletes the volumes' data; not undoable")
+            if cleanable, finding.cleanup?.hasPrefix("docker volume rm") == true {
+                Text("Deletes the volume's data; not undoable")
                     .font(.system(size: 12))
                     .foregroundStyle(Theme.amber)
             }
@@ -1183,7 +1178,7 @@ struct FindingRow: View {
                         .accessibilityFocused($panelFocused)
                 }
                 // Orphaned worktrees list folders that are already gone, and another device's paths are not here.
-                if host == nil, let first = finding.paths.first, exists(atPath: first) {
+                if host == nil, let first = finding.paths.first, FileManager.default.fileExists(atPath: first) {
                     Button("Show in Finder", action: reveal)
                 }
                 if host == nil, failure?.reason == KnownState.dockerNotRunning, let open = openDocker() {
@@ -1209,10 +1204,6 @@ struct FindingRow: View {
     private func close() {
         onCancel()
         rowFocused = true
-    }
-
-    private func exists(atPath path: String) -> Bool {
-        FileManager.default.fileExists(atPath: path)
     }
 
     private func reveal() {

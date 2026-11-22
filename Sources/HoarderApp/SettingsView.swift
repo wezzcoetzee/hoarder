@@ -261,7 +261,7 @@ private struct MachinePage: View {
         let parts = [
             machine.disk.map { "\(gigabytes($0.free)) free of \(gigabytes($0.total))" },
             machine.platform?.label,
-            machine.report.map { "scanned \(scannedAgo($0.scannedAt))" },
+            machine.report.map { "scanned \(ago($0.scannedAt))" },
         ].compactMap { $0 }
         return Text(parts.isEmpty ? (machine.scanning ? "Connecting" : "Not checked yet") : parts.joined(separator: " · "))
             .foregroundStyle(machine.problem != nil ? Theme.red : machine.isLow ? Theme.amber : Theme.dim)
@@ -382,16 +382,6 @@ private struct MachinePage: View {
         }
         .buttonStyle(TextButtonStyle())
         .padding(.leading, -6)
-    }
-
-    private func scannedAgo(_ date: Date) -> String {
-        let minutes = Int(Date.now.timeIntervalSince(date) / 60)
-        switch minutes {
-        case ..<1: return "just now"
-        case ..<60: return "\(minutes) min ago"
-        case ..<1440: return "\(minutes / 60) h ago"
-        default: return "\(minutes / 1440) d ago"
-        }
     }
 }
 
