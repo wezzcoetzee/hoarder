@@ -48,7 +48,7 @@ enum Snapshot {
         /// Shows the whole list instead of capping it at the popover's scroll height.
         var full: Bool?
         var devices: [DeviceState]?
-        /// Renders the Settings window instead: "general", "local", or a device's host.
+        /// Renders the Settings window instead: "general", "inUse", "local", or a device's host.
         var settings: String?
     }
 
@@ -101,7 +101,12 @@ enum Snapshot {
 
         _ = NSApplication.shared
         if let page = state.settings {
-            let target: SettingsView.Page = page == "general" ? .general : .machine(page)
+            let target: SettingsView.Page =
+                switch page {
+                case "general": .general
+                case "inUse": .inUse
+                default: .machine(page)
+                }
             try write(SettingsView(monitor: monitor, page: target), to: output)
             return
         }

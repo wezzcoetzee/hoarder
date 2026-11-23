@@ -61,12 +61,23 @@ enum DockerScanner {
         enum CodingKeys: String, CodingKey { case name = "Name", nodes = "Nodes" }
     }
 
-    private struct Container: Decodable {
+    struct Container: Decodable {
+        let name: String
         let image: String
         /// Comma separated volume names and bind mount paths.
         let mounts: String
+        /// "running", "exited", "created", …
+        let state: String
 
-        enum CodingKeys: String, CodingKey { case image = "Image", mounts = "Mounts" }
+        enum CodingKeys: String, CodingKey { case name = "Names", image = "Image", mounts = "Mounts", state = "State" }
+
+        var volumes: [String] { mounts.split(separator: ",").map(String.init) }
+
+        /// "registry:2@sha256:…" or "host:5000/library/registry:2" → "registry"
+        var isRegistry: Bool {
+            let repository = image.split(separator: "@").first?.split(separator: "/").last ?? ""
+            return registryImages.contains(String(repository.split(separator: ":").first ?? ""))
+        }
     }
 
     /// Images that serve a registry. Their volumes hold pushed images, which no cache rebuilds.
@@ -88,7 +99,7 @@ enum DockerScanner {
 
     /// The VM disk is reported even when the daemon is down; the prunable rows need it running.
     /// `daemonDown` is true only when a VM exists but `docker` cannot reach it.
-    static func scan() async -> (findings: [Finding], daemonDown: Bool) {
+    static func scan(_ rules: InUseRules) async -> (findings: [Finding], daemonDown: Bool) {
         let sizes = await Shell.sizes(of: vmDisks.map(\.1))
         let disks = vmDisks.map { title, path in
             Finding(
@@ -97,7 +108,7 @@ enum DockerScanner {
         }
 
         async let summary = Shell.run("docker", ["system", "df", "--format", "{{json .}}"])
-        async let volumes = volumeFindings()
+        async let volumes = volumeFindings(rules)
         let output = await summary
         guard output.ok else { return (disks, !disks.isEmpty) }
         let rows = lines(Row.self, in: output.stdout)
@@ -114,17 +125,17 @@ enum DockerScanner {
     /// Volumes are judged one by one rather than with `docker volume prune`: since Docker 23 that skips
     /// named volumes, so it frees little of what `system df` calls reclaimable, and with `-a` it would take
     /// a stopped registry's images too.
-    private static func volumeFindings() async -> [Finding] {
+    private static func volumeFindings(_ rules: InUseRules) async -> [Finding] {
         async let usage = Shell.run("docker", ["system", "df", "-v", "--format", "json"])
         async let builders = Shell.run("docker", ["buildx", "ls", "--format", "json"])
-        async let containers = Shell.run("docker", ["ps", "-a", "--no-trunc", "--format", "{{json .}}"])
+        async let listing = Shell.run("docker", ["ps", "-a", "--no-trunc", "--format", "{{json .}}"])
 
         guard let volumes = try? JSONDecoder().decode(DiskUsage.self, from: Data(await usage.stdout.utf8)).volumes
         else { return [] }
         let listed = await builders
         let owners = listed.ok ? builderNodes(lines(Builder.self, in: listed.stdout)) : nil
-        let registry = registryVolumes(lines(Container.self, in: await containers.stdout))
-        return volumes.compactMap { classify($0, builderNodes: owners, registryVolumes: registry) }
+        let containers = lines(Container.self, in: await listing.stdout)
+        return volumes.compactMap { classify($0, builderNodes: owners, containers: containers, rules: rules) }
     }
 
     /// Builder name by node name. A docker-container builder keeps its cache in `buildx_buildkit_<node>_state`.
@@ -134,39 +145,47 @@ enum DockerScanner {
             uniquingKeysWith: { first, _ in first })
     }
 
-    private static func registryVolumes(_ containers: [Container]) -> Set<String> {
-        Set(
-            containers.filter { container in
-                // "host:5000/library/registry:2@sha256:…" → "registry"
-                let repository = container.image.split(separator: "@").first?.split(separator: "/").last ?? ""
-                return registryImages.contains(String(repository.split(separator: ":").first ?? ""))
-            }.flatMap { $0.mounts.split(separator: ",").map(String.init) })
-    }
-
     /// `builderNodes` is nil when `docker buildx` could not list builders, so a BuildKit volume's owner is
-    /// unknown and it is never offered for removal. Volumes in use that are neither BuildKit cache nor a
-    /// registry's get no row, as their data is the container's business.
-    static func classify(_ volume: Volume, builderNodes: [String: String]?, registryVolumes: Set<String>) -> Finding? {
+    /// unknown and it is never offered for removal. A volume a container mounts can only go with that
+    /// container, so its command removes both, behind a warning naming them.
+    static func classify(
+        _ volume: Volume, builderNodes: [String: String]?, containers: [Container], rules: InUseRules = InUseRules()
+    ) -> Finding? {
         guard let bytes = parseSize(volume.size), bytes > 0 else { return nil }
-        let inUse = volume.links != "0"
-        let row = { (detail: String, verdict: Verdict, cleanup: String?) in
+        let users = containers.filter { $0.volumes.contains(volume.name) }
+        let names = listed(users.map(\.name))
+        // Links counts containers that mount it; `docker ps` may not have named them all.
+        let inUse = volume.links != "0" || !users.isEmpty
+        let remove = (users.isEmpty ? "" : "docker rm -f \(users.map(\.name).joined(separator: " ")) && ") + "docker volume rm \(volume.name)"
+        let removing = users.isEmpty ? "Deletes" : "Removes \(users.count == 1 ? "container" : "containers") \(names) and deletes"
+        let row = { (detail: String, verdict: Verdict, cleanup: String?, warning: String?) in
             Finding(
                 category: .docker, title: volume.name, detail: detail, paths: [], bytes: bytes,
-                lastActivity: nil, verdict: verdict, cleanup: cleanup)
+                lastActivity: nil, verdict: verdict, cleanup: cleanup, warning: warning)
         }
 
-        if registryVolumes.contains(volume.name) {
-            return row("registry data: pushed images, not a cache", .keep, nil)
+        if users.contains(where: \.isRegistry) {
+            return row(
+                "registry data: pushed images, not a cache", rules.registryVolumes.guarded, remove,
+                "\(removing) the pushed images; not undoable")
         }
         if let node = buildkitNode(volume.name) {
             if let builder = builderNodes?[node] {
-                return row("BuildKit cache of builder \(builder)", .keep, "docker buildx prune --builder \(builder) -f")
+                return row(
+                    "BuildKit cache of builder \(builder)", rules.liveBuilderCache,
+                    "docker buildx prune --builder \(builder) -f", nil)
             }
-            if inUse { return row("BuildKit cache, a container still mounts it", .keep, nil) }
-            guard builderNodes != nil else { return row("BuildKit cache, owner unknown without docker buildx", .keep, nil) }
-            return row("BuildKit cache left by a removed builder", .review, "docker volume rm \(volume.name)")
+            if inUse { return row("BuildKit cache, mounted by \(names.isEmpty ? "a container" : names)", .keep, remove, nil) }
+            guard builderNodes != nil else { return row("BuildKit cache, owner unknown without docker buildx", .keep, nil, nil) }
+            return row("BuildKit cache left by a removed builder", .review, remove, nil)
         }
-        return inUse ? nil : row("unused, may hold database data", .review, "docker volume rm \(volume.name)")
+        guard inUse else {
+            return row("unused, may hold database data", .review, remove, "Deletes the volume's data; not undoable")
+        }
+        let running = users.contains { $0.state == "running" } ? "running" : "stopped"
+        return row(
+            users.isEmpty ? "mounted by a container" : "mounted by \(names), \(running)", rules.mountedVolumes.guarded,
+            remove, "\(removing) the volume's data; not undoable")
     }
 
     private static func buildkitNode(_ volume: String) -> String? {

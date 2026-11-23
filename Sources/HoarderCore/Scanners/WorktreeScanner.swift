@@ -19,6 +19,8 @@ enum WorktreeScanner {
         let merged: Bool
         let pushed: Bool
         let tip: Date?
+        /// Untracked paths, relative to the worktree, that `ignoredUntracked` says are not changes.
+        var noise: [String] = []
     }
 
     static func scan(_ config: Config) async -> [Finding] {
@@ -26,7 +28,7 @@ enum WorktreeScanner {
         let repos = Set(dotGits.compactMap(Git.commonDir(forDotGit:)))
 
         let worktrees = await withTaskGroup(of: [Worktree].self) { group in
-            for repo in repos { group.addTask { await inspect(gitDir: repo) } }
+            for repo in repos { group.addTask { await inspect(gitDir: repo, ignoring: config.inUse.ignoredUntracked) } }
             return await group.reduce(into: []) { $0 += $1 }
         }
         // node_modules is sized once by NodeModulesScanner and folded back in by Hoarder.scan.
@@ -35,7 +37,7 @@ enum WorktreeScanner {
         let isOrphan = { (worktree: Worktree) in !worktree.present && !worktree.entry.locked }
         let orphans = Dictionary(grouping: worktrees.filter(isOrphan), by: \.gitDir).values.map(orphanFinding)
         return worktrees.filter { !isOrphan($0) }
-            .map { finding(for: $0, bytes: sizes[$0.entry.path] ?? 0, staleAfterDays: config.staleWorktreeDays) } + orphans
+            .map { finding(for: $0, bytes: sizes[$0.entry.path] ?? 0, config: config) } + orphans
     }
 
     /// Parses `git worktree list --porcelain`, dropping the first block: the main worktree. With `-z` the
@@ -59,13 +61,42 @@ enum WorktreeScanner {
         return Array(entries.dropFirst())
     }
 
-    static func classify(_ worktree: Worktree, staleAfterDays: Int, now: Date = .now) -> (Verdict, String) {
+    /// `git status --porcelain -z`: whether anything counts as a change, and the untracked paths that
+    /// `ignoring` matches. A rename or copy is followed by its old path, which is skipped.
+    static func changes(porcelain: String, ignoring patterns: [String]) -> (dirty: Bool, noise: [String]) {
+        var dirty = false
+        var noise: [String] = []
+        var entries = porcelain.split(separator: "\0").makeIterator()
+        while let entry = entries.next() {
+            guard entry.count > 3 else { continue }
+            let status = entry.prefix(2), path = String(entry.dropFirst(3))
+            if status.first == "R" || status.first == "C" { _ = entries.next() }
+            if status == "??" && isIgnored(path, by: patterns) { noise.append(path) } else { dirty = true }
+        }
+        return (dirty, noise)
+    }
+
+    /// A pattern names a file or folder anywhere in the worktree (".DS_Store") or a path inside it
+    /// (".vscode/settings.json"). git lists an untracked folder with a trailing slash.
+    static func isIgnored(_ path: String, by patterns: [String]) -> Bool {
+        let path = path.hasSuffix("/") ? String(path.dropLast()) : path
+        return patterns.contains { pattern in
+            let pattern = pattern.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            guard !pattern.isEmpty else { return false }
+            return path == pattern || path.hasSuffix("/" + pattern) || path.hasPrefix(pattern + "/")
+                || path.contains("/" + pattern + "/")
+        }
+    }
+
+    static func classify(
+        _ worktree: Worktree, staleAfterDays: Int, rules: InUseRules = InUseRules(), now: Date = .now
+    ) -> (Verdict, String) {
         let age = worktree.tip.map { days(since: $0, now: now) } ?? 0
         if !worktree.present && !worktree.entry.locked {
             return (.reclaimable, "orphan: directory gone, registration left")
         }
-        if worktree.dirty { return (.keep, "uncommitted changes") }
-        if worktree.entry.locked { return (.keep, "locked") }
+        if worktree.dirty { return (rules.uncommittedWorktrees.guarded, "uncommitted changes") }
+        if worktree.entry.locked { return (rules.lockedWorktrees.guarded, "locked") }
         if age < staleAfterDays { return (.keep, "active, \(age)d old") }
         if worktree.merged { return (.reclaimable, "merged, \(age)d old") }
         let unpushed = worktree.pushed ? "" : ", never pushed"
@@ -73,15 +104,15 @@ enum WorktreeScanner {
     }
 
     /// One worktree read again, as its row; nil when git no longer lists it.
-    static func recheck(path: String, bytes: Int64, staleAfterDays: Int) async -> Finding? {
+    static func recheck(path: String, bytes: Int64, config: Config) async -> Finding? {
         guard let gitDir = Git.commonDir(forDotGit: path + "/.git"),
-            let worktree = await inspect(gitDir: gitDir, only: path).first
+            let worktree = await inspect(gitDir: gitDir, ignoring: config.inUse.ignoredUntracked, only: path).first
         else { return nil }
-        return finding(for: worktree, bytes: bytes, staleAfterDays: staleAfterDays)
+        return finding(for: worktree, bytes: bytes, config: config)
     }
 
-    /// Every linked worktree of a repo, or only the one at `only`.
-    private static func inspect(gitDir: String, only: String? = nil) async -> [Worktree] {
+    /// Every linked worktree of a repo, or only the one at `only`. `ignoring` is `ignoredUntracked`.
+    private static func inspect(gitDir: String, ignoring: [String], only: String? = nil) async -> [Worktree] {
         let listing = await git(gitDir, "worktree", "list", "--porcelain", "-z")
         let parsed =
             if listing.ok {
@@ -106,10 +137,10 @@ enum WorktreeScanner {
             for entry in entries {
                 group.addTask {
                     let present = exists(entry.path)
-                    let dirty =
+                    let (dirty, noise) =
                         if present {
-                            !(await gitIn(entry.path, "status", "--porcelain").stdout.isEmpty)
-                        } else { false }
+                            changes(porcelain: await gitIn(entry.path, "status", "--porcelain", "-z").stdout, ignoring: ignoring)
+                        } else { (false, []) }
                     // A present worktree is asked about its own HEAD; via --git-dir, HEAD is the main checkout's.
                     let log =
                         if present {
@@ -125,7 +156,7 @@ enum WorktreeScanner {
                         } else { false }
                     return Worktree(
                         repo: repo, gitDir: gitDir, entry: entry, present: present, dirty: dirty,
-                        merged: entry.branch.map(merged.contains) ?? false, pushed: pushed, tip: tip)
+                        merged: entry.branch.map(merged.contains) ?? false, pushed: pushed, tip: tip, noise: noise)
                 }
             }
             return await group.reduce(into: []) { $0.append($1) }
@@ -153,21 +184,31 @@ enum WorktreeScanner {
         await Shell.run("git", safeConfig + ["-C", worktree] + arguments)
     }
 
-    private static func finding(for worktree: Worktree, bytes: Int64, staleAfterDays: Int) -> Finding {
-        let (verdict, detail) = classify(worktree, staleAfterDays: staleAfterDays)
+    private static func finding(for worktree: Worktree, bytes: Int64, config: Config) -> Finding {
+        let (verdict, detail) = classify(worktree, staleAfterDays: config.staleWorktreeDays, rules: config.inUse)
+        let warning =
+            !worktree.present
+            ? nil
+            : worktree.entry.locked
+                ? "Ignores the lock and deletes any uncommitted changes; not undoable"
+                : worktree.dirty ? "Deletes the uncommitted changes; not undoable" : nil
         return Finding(
             category: .worktree, title: "\(worktree.repo) · \(worktree.entry.branch ?? "detached")",
             detail: detail, paths: [worktree.entry.path], bytes: bytes, lastActivity: worktree.tip,
-            verdict: verdict, cleanup: removeCommand(worktree))
+            verdict: verdict, cleanup: removeCommand(worktree), warning: warning)
     }
 
     /// Forces only past what the scan saw: a clean worktree gets no --force, so git refuses one that
-    /// picked up changes since. A dirty one needs --force and a locked one -f -f; both are kept rows,
-    /// which the app runs only behind a warning.
+    /// picked up changes since. A dirty one needs --force and a locked one -f -f; both carry a warning.
+    /// Untracked files that do not count as changes would still make git refuse, so they are deleted
+    /// first, by name, and anything else that appeared since still stops it.
     static func removeCommand(_ worktree: Worktree) -> String? {
         guard worktree.present else { return nil }
         let force = worktree.entry.locked ? " -f -f" : worktree.dirty ? " --force" : ""
-        return "git --git-dir=\(shellQuote(worktree.gitDir)) worktree remove\(force) \(shellQuote(worktree.entry.path))"
+        let remove = "git --git-dir=\(shellQuote(worktree.gitDir)) worktree remove\(force) \(shellQuote(worktree.entry.path))"
+        guard force.isEmpty, !worktree.noise.isEmpty else { return remove }
+        let noise = worktree.noise.map { shellQuote(worktree.entry.path + "/" + $0) }.joined(separator: " ")
+        return "rm -rf \(noise) && \(remove)"
     }
 
     private static func orphanFinding(_ orphans: [Worktree]) -> Finding {

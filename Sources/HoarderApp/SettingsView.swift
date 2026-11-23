@@ -2,12 +2,13 @@ import AppKit
 import HoarderCore
 import SwiftUI
 
-/// The Settings window: General, then one page per machine, this Mac first. Every control writes
+/// The Settings window: General, In use, then one page per machine, this Mac first. Every control writes
 /// config.json straight away through `Monitor.updateConfig`, so there is no Save, and hand edits to the
 /// file still apply within a minute.
 struct SettingsView: View {
     enum Page: Hashable {
         case general
+        case inUse
         case machine(Machine.ID)
     }
 
@@ -46,6 +47,7 @@ struct SettingsView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 1) {
             item(.general) { Text("General") }
+            item(.inUse) { Text("In use") }
             Text("MACHINES")
                 .font(.system(size: 11))
                 .kerning(0.5)
@@ -148,6 +150,8 @@ struct SettingsView: View {
             switch page {
             case .general:
                 GeneralPage(monitor: monitor)
+            case .inUse:
+                InUsePage(monitor: monitor)
             case .machine(let id):
                 if let machine = monitor.machines.first(where: { $0.id == id }) {
                     MachinePage(monitor: monitor, machine: machine) { page = .general }
@@ -195,17 +199,7 @@ private struct GeneralPage: View {
                     monitor.updateConfig { $0.scanEveryMinutes = value }
                 }
             }
-            SettingRow("Worktree stale after") {
-                NumberField(value: monitor.config.staleWorktreeDays, unit: "days", range: 1...365) { value in
-                    monitor.updateConfig { $0.staleWorktreeDays = value }
-                }
-            }
-            SettingRow("node_modules idle after") {
-                NumberField(value: monitor.config.idleNodeModulesDays, unit: "days", range: 1...365) { value in
-                    monitor.updateConfig { $0.idleNodeModulesDays = value }
-                }
-            }
-            Text("The free-space limit and folders are set per machine, on the left.")
+            Text("What counts as in use has its own page. The free-space limit and folders are set per machine.")
                 .foregroundStyle(Theme.dim)
             Theme.line.frame(height: 1)
             HStack(spacing: 0) {
@@ -214,6 +208,107 @@ private struct GeneralPage: View {
             }
             .font(.system(size: 12))
         }
+    }
+}
+
+// MARK: In use
+
+/// The rules that make a row in use. Rules that guard data offer In use or Review; cleanable caches and a
+/// live builder's cache can also be Safe, which puts them in Clean safe. This Mac's config only: a device
+/// reads its own config.json, as it does for its folders.
+private struct InUsePage: View {
+    let monitor: Monitor
+    @State private var newPattern: String?
+
+    private var rules: InUseRules { monitor.config.inUse }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            heading("Worktrees")
+            SettingRow("Uncommitted changes") { picker(\.uncommittedWorktrees) }
+            SettingRow("Locked") { picker(\.lockedWorktrees) }
+            SettingRow("Active for") {
+                NumberField(value: monitor.config.staleWorktreeDays, unit: "days", range: 1...365) { value in
+                    monitor.updateConfig { $0.staleWorktreeDays = value }
+                }
+            }
+            SettingRow("Not changes") { ignoredUntracked }
+            heading("node_modules")
+            SettingRow("Active for") {
+                NumberField(value: monitor.config.idleNodeModulesDays, unit: "days", range: 1...365) { value in
+                    monitor.updateConfig { $0.idleNodeModulesDays = value }
+                }
+            }
+            heading("Docker")
+            SettingRow("Mounted volumes") { picker(\.mountedVolumes) }
+            SettingRow("Registry volumes") { picker(\.registryVolumes) }
+            SettingRow("Live builder cache") { picker(\.liveBuilderCache, allowsSafe: true) }
+            heading("Caches")
+            ForEach(Hoarder.cacheNames, id: \.title) { cache in
+                SettingRow(cache.title) {
+                    VerdictPicker(value: rules.caches[cache.title] ?? cache.verdict, allowsSafe: cache.cleanable) { value in
+                        // The built-in verdict is stored as no entry, so a changed default still applies.
+                        monitor.updateConfig { $0.inUse.caches[cache.title] = value == cache.verdict ? nil : value }
+                    }
+                }
+            }
+            Theme.line.frame(height: 1)
+            HStack(spacing: 0) {
+                Text("This Mac; devices read their own config.json. Applies from the next scan.").foregroundStyle(Theme.dim)
+                Button(monitor.local.scanning ? "Scanning" : "Rescan now") { Task { await monitor.local.scan() } }
+                    .buttonStyle(TextButtonStyle())
+                    .disabled(monitor.local.scanning)
+            }
+            .font(.system(size: 12))
+        }
+    }
+
+    private func heading(_ title: String) -> some View {
+        Text(title).font(.system(size: 13, weight: .semibold)).padding(.top, 4)
+    }
+
+    private func picker(_ rule: WritableKeyPath<InUseRules, Verdict>, allowsSafe: Bool = false) -> some View {
+        VerdictPicker(value: rules[keyPath: rule], allowsSafe: allowsSafe) { value in
+            monitor.updateConfig { $0.inUse[keyPath: rule] = value }
+        }
+    }
+
+    /// Untracked names or paths that do not make a worktree dirty, typed like a device's folders.
+    private var ignoredUntracked: some View {
+        let patterns = rules.ignoredUntracked
+        return VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array(patterns.enumerated()), id: \.offset) { index, pattern in
+                HStack(spacing: 8) {
+                    Text(pattern).font(.system(size: 12, design: .monospaced))
+                    Spacer(minLength: 0)
+                    Button("Remove") { setPatterns(patterns.enumerated().filter { $0.offset != index }.map(\.element)) }
+                        .buttonStyle(TextButtonStyle())
+                        .foregroundStyle(Theme.dim)
+                        .accessibilityLabel("Remove \(pattern)")
+                }
+            }
+            if let pattern = newPattern {
+                TextField(".claude/ or .DS_Store", text: Binding(get: { pattern }, set: { newPattern = $0 }))
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12, design: .monospaced))
+                    .onSubmit {
+                        let trimmed = pattern.trimmingCharacters(in: .whitespaces)
+                        if !trimmed.isEmpty, !patterns.contains(trimmed) { setPatterns(patterns + [trimmed]) }
+                        newPattern = nil
+                    }
+                    .onExitCommand { newPattern = nil }
+            } else {
+                Button("Add untracked file or folder") { newPattern = "" }
+                    .buttonStyle(TextButtonStyle())
+                    .foregroundStyle(Theme.green)
+                    .padding(.leading, -6)
+            }
+        }
+        .frame(maxWidth: 360, alignment: .leading)
+    }
+
+    private func setPatterns(_ patterns: [String]) {
+        monitor.updateConfig { $0.inUse.ignoredUntracked = patterns }
     }
 }
 
@@ -403,6 +498,25 @@ private struct SettingRow<Content: View>: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) { content }
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+}
+
+/// In use, Review, and Safe where the rule allows it, as a small segmented control.
+private struct VerdictPicker: View {
+    let value: Verdict
+    let allowsSafe: Bool
+    let onChange: (Verdict) -> Void
+
+    var body: some View {
+        Picker("", selection: Binding(get: { value }, set: { if $0 != value { onChange($0) } })) {
+            Text("In use").tag(Verdict.keep)
+            Text("Review").tag(Verdict.review)
+            if allowsSafe { Text("Safe").tag(Verdict.reclaimable) }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .controlSize(.small)
+        .fixedSize()
     }
 }
 

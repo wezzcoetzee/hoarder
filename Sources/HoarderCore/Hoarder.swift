@@ -13,8 +13,8 @@ public enum Hoarder {
         }
         async let worktrees = reporting(.worktree) { await WorktreeScanner.scan(config) }
         async let nodeModules = reporting(.nodeModules) { await NodeModulesScanner.scan(config) }
-        async let caches = reporting(.cache) { await CacheScanner.scan() }
-        async let docker = reporting(.docker) { await DockerScanner.scan() }
+        async let caches = reporting(.cache) { await CacheScanner.scan(config.inUse) }
+        async let docker = reporting(.docker) { await DockerScanner.scan(config.inUse) }
 
         let dependencies = await nodeModules
         let findings = await including(dependencies, in: worktrees) + dependencies + caches + docker.findings
@@ -50,9 +50,12 @@ public enum Hoarder {
     public static func recheck(_ finding: Finding, config: Config) async -> Recheck {
         guard finding.category == .worktree, finding.paths.count == 1, let path = finding.paths.first else { return .unchecked }
         guard FileManager.default.fileExists(atPath: path) else { return .gone }
-        let fresh = await WorktreeScanner.recheck(path: path, bytes: finding.bytes, staleAfterDays: config.staleWorktreeDays)
+        let fresh = await WorktreeScanner.recheck(path: path, bytes: finding.bytes, config: config)
         return fresh.map(Recheck.judged) ?? .unchecked
     }
+
+    /// Caches Settings can set a verdict for.
+    public static var cacheNames: [CacheName] { CacheScanner.names }
 
     /// Worktrees are walked without node_modules, so each one gets the node_modules inside it added back:
     /// removing a worktree frees both.

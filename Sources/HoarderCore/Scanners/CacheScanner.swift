@@ -9,6 +9,7 @@ enum CacheScanner {
         let verdict: Verdict
         let detail: String
         let cleanup: String?
+        var warning: String? = nil
     }
 
     private static let regenerable = "re-downloaded when needed"
@@ -55,21 +56,34 @@ enum CacheScanner {
         Known(title: "uv cache", path: "~/.cache/uv", verdict: .review, detail: regenerable, cleanup: "uv cache clean"),
         Known(
             title: "Claude Code transcripts", path: "~/.claude/projects", verdict: .review,
-            detail: "set cleanupPeriodDays in ~/.claude/settings.json", cleanup: nil),
-        Known(title: "Codex sessions", path: "~/.codex/sessions", verdict: .review, detail: "old session logs, delete by hand", cleanup: nil),
+            detail: "or set cleanupPeriodDays in ~/.claude/settings.json", cleanup: "rm -rf ~/.claude/projects",
+            warning: "Deletes every Claude Code session; /resume loses them"),
+        Known(
+            title: "Codex sessions", path: "~/.codex/sessions", verdict: .review, detail: "old session logs",
+            cleanup: "rm -rf ~/.codex/sessions", warning: "Deletes every Codex session; resume loses them"),
         Known(
             title: "T3 Code data", path: "~/.t3/userdata", verdict: .keep, detail: "app state and attachments",
             cleanup: nil),
     ]
 
-    static func scan() async -> [Finding] {
+    /// The caches this OS has, by name, and whether each has a command; Settings lists them for
+    /// `InUseRules.caches`.
+    static var names: [CacheName] {
+        known.filter { $0.path != nil }.map { CacheName(title: $0.title, verdict: $0.verdict, cleanable: $0.cleanup != nil) }
+    }
+
+    /// A configured verdict replaces the built-in one, except that a cache with no command is never
+    /// reclaimable, so the header never counts what Clean safe cannot run.
+    static func scan(_ rules: InUseRules) async -> [Finding] {
         let present = known.compactMap { known in known.path.map { (known, expand($0)) } }.filter { exists($1) }
         let sizes = await Shell.sizes(of: present.map(\.1))
         return present.compactMap { known, path in
             guard let bytes = sizes[path], bytes > 0 else { return nil }
+            let configured = rules.caches[known.title].map { known.cleanup == nil ? $0.guarded : $0 }
             return Finding(
                 category: .cache, title: known.title, detail: known.detail, paths: [path],
-                bytes: bytes, lastActivity: nil, verdict: known.verdict, cleanup: known.cleanup)
+                bytes: bytes, lastActivity: nil, verdict: configured ?? known.verdict, cleanup: known.cleanup,
+                warning: known.warning)
         } + [memoryBackedTmp()].compactMap { $0 }
     }
 
