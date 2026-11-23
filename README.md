@@ -107,15 +107,19 @@ The README images come from `scripts/screenshots/report.json`, a made-up report,
 
 Worktree rules come from the `worktree-cleanup` skill: orphan, then hold (dirty, locked, under 14 days), then merged, then stale.
 
+What counts as in use is set in Settings, In use: uncommitted changes and locks (In use or Review), how long a worktree or node_modules stays active, untracked files that are not changes (`.DS_Store` by default; such a worktree's command deletes them by name before a plain `git worktree remove`, so anything else that appeared still stops it), mounted and registry Docker volumes, a live builder's cache, and each cache's verdict. A rule that guards data never goes past Review, so Clean safe can never run a command that loses work.
+
+<img src="docs/screenshots/in-use.png" alt="Settings, In use page: worktree, node_modules, Docker and cache rules, each set to In use, Review or Safe" width="560">
+
 The header adds it up: what is safe to clean on this machine, what is safe inside Docker's disk (on a Mac, Docker prunes free space inside its VM disk, not on the Mac, so that part is listed apart), what is left to review, and the free space after Clean safe, against your limit while you are under it. "After Clean safe 31.5 GB, still under your 40 GB limit" in amber says Clean safe alone will not be enough.
 
 Clean safe runs every reclaimable row's command, one at a time. Pressing it first lists every row it will run, in order, with each command one click away. While it runs, the same list marks each row done, cleaning or not done, with "3 of 11" and Stop after this one, which lets the running command finish and starts no more. It ends with "Cleaned 10 of 11, 42.6 GB", or "Stopped after 3 of 11".
 
-Kept rows can be cleaned one by one: a recent worktree or active node_modules runs its plain command, while a dirty worktree uses `--force` and a locked one `-f -f`, with a red warning that the uncommitted changes go. Rows with no command (the Docker VM disk, app data) only show where they are.
+Kept rows can be cleaned one by one: a recent worktree or active node_modules runs its plain command, while a dirty worktree uses `--force` and a locked one `-f -f`, with a red warning that the uncommitted changes go. A Docker volume a container mounts is removed with that container (`docker rm -f api-db-1 && docker volume rm pgdata`), and agent transcripts with `rm -rf`, each behind a red warning saying what goes. Rows with no command (the Docker VM disk, T3 Code data) only show where they are.
 
-A cleanup that fails says why under its row in plain words ("it has uncommitted changes now", "a container is using it now", "pnpm is not on the login shell's PATH"). Its panel has Show output for the command's own words, and Open Docker when Docker is not running and Docker Desktop is installed. Commands without `--force` never go past what the scan saw, so git refuses a worktree an agent touched since. On this Mac that worktree is checked again at once and its row changes to what it is now, in place, with the force command behind the usual red warning; a folder that is already gone counts as cleaned. A device's worktree is checked by rescanning the device, and its row says "checking again" until then. A refused row keeps its place until the popover closes, and sections hold their order while you clean.
+A cleanup that fails says why under its row in plain words ("it has uncommitted changes now", "a container is using it now", "pnpm is not on the login shell's PATH", "something wrote to it while cleaning; run again" when a build or gopls writes into the Go cache as it goes). Its panel has Show output for the command's own words, and Open Docker when Docker is not running and Docker Desktop is installed. Commands without `--force` never go past what the scan saw, so git refuses a worktree an agent touched since. On this Mac that worktree is checked again at once and its row changes to what it is now, in place, with the force command behind the usual red warning; a folder that is already gone counts as cleaned. A device's worktree is checked by rescanning the device, and its row says "checking again" until then. A refused row keeps its place until the popover closes, and sections hold their order while you clean.
 
-Docker volumes get a row each instead of one `docker volume prune`, which since Docker 23 skips named volumes and so frees little of what `docker system df` calls reclaimable. A registry's volume is kept with no command: pushed images are not a cache. A BuildKit state volume (`buildx_buildkit_<node>_state`) is kept while `docker buildx ls` lists its builder or a container mounts it, and is offered for `docker volume rm` only once neither does, as CI builders that are removed with their state kept leave these behind. Other unused volumes are review rows; volumes in use are not listed.
+Docker volumes get a row each instead of one `docker volume prune`, which since Docker 23 skips named volumes and so frees little of what `docker system df` calls reclaimable. A registry's volume is kept: pushed images are not a cache. A BuildKit state volume (`buildx_buildkit_<node>_state`) is kept while `docker buildx ls` lists its builder or a container mounts it, and is a review row once neither does, as CI builders that are removed with their state kept leave these behind. Other unused volumes are review rows; volumes a container mounts are kept and name that container.
 
 On Linux, a `/tmp` mounted as tmpfs is shown as kept with its used size and no command: clearing it frees RAM and swap, not disk.
 
@@ -189,7 +193,7 @@ If a device shows as unreachable, its header says why:
 
 ## Config
 
-Everything below is editable in Settings (the gear, then Settings…): General holds open at login and the scan intervals, then each machine has its own page with its free-space limit, project folders, a connection test and Remove (or right-click it in the list). Devices are added there from your tailnet peers or by name; a pasted URL such as `https://homeserver.<tailnet>.ts.net/` is trimmed to its host.
+Everything below is editable in Settings (the gear, then Settings…): General holds open at login and the scan interval, In use holds the rules above, then each machine has its own page with its free-space limit, project folders, a connection test and Remove (or right-click it in the list). Devices are added there from your tailnet peers or by name; a pasted URL such as `https://homeserver.<tailnet>.ts.net/` is trimmed to its host.
 
 <img src="docs/screenshots/settings.png" alt="Settings window: General and a list of machines on the left, homeserver's page on the right with status, host, its own 20 GB limit, two project folders, Test connection and Remove device" width="560">
 
@@ -202,6 +206,15 @@ Settings saves to `~/.config/hoarder/config.json` as you change things, writing 
   "projectRoots": ["~/Development", "~/.t3/worktrees", "~/.codex/worktrees", "~/.cursor/worktrees"],
   "scanEveryMinutes": 60,
   "staleWorktreeDays": 14,
+  "inUse": {
+    "uncommittedWorktrees": "keep",
+    "lockedWorktrees": "keep",
+    "ignoredUntracked": [".DS_Store"],
+    "mountedVolumes": "keep",
+    "registryVolumes": "keep",
+    "liveBuilderCache": "keep",
+    "caches": { "Claude Code transcripts": "review" }
+  },
   "devices": [
     { "host": "homeserver", "alertBelowGB": 20 },
     { "host": "mac-mini", "projectRoots": ["~/src"] }
@@ -209,7 +222,7 @@ Settings saves to `~/.config/hoarder/config.json` as you change things, writing 
 }
 ```
 
-`devices` defaults to none. `host` is anything `ssh` accepts; `alertBelowGB` and `projectRoots` are optional per device.
+`inUse` rules take `keep`, `review` or `reclaimable`; the worktree and volume rules treat `reclaimable` as `review`. `caches` is keyed by the name a row shows and defaults to empty. A device's scan uses its own config.json's rules. `devices` defaults to none. `host` is anything `ssh` accepts; `alertBelowGB` and `projectRoots` are optional per device.
 
 ## Known gaps
 

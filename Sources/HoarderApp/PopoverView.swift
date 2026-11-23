@@ -26,12 +26,6 @@ enum Theme {
     }
 }
 
-/// "a", "a and b", "a, b and c".
-func listed(_ items: [String]) -> String {
-    guard let last = items.last, items.count > 1 else { return items.first ?? "" }
-    return items.dropLast().joined(separator: ", ") + " and " + last
-}
-
 extension HoarderCore.Category {
     /// The category mid-sentence, as in the first scan's progress line.
     var inSentence: String {
@@ -978,7 +972,8 @@ struct Dot: View {
 
 /// One finding. Clicking it opens a panel with the full reason, and for a row with a command the exact
 /// command and Run; hover shows "Clean" on those rows. Kept rows can be cleaned too: grey when nothing
-/// is lost, red with a warning when the command forces past uncommitted changes or a lock.
+/// is lost, red with the finding's warning when the command loses data (uncommitted changes, a lock, a
+/// volume's contents).
 struct FindingRow: View {
     /// Where row text starts: horizontal padding, dot, spacing. Lines below the title align to it.
     static let textInset: CGFloat = 12 + 7 + 8
@@ -1013,16 +1008,8 @@ struct FindingRow: View {
         finding.cleanup.map { runnableCommand($0, on: host) }
     }
 
-    /// What forcing loses, when the command forces git past what made the row kept.
-    private var forceWarning: String? {
-        guard let command = finding.cleanup else { return nil }
-        if command.contains("worktree remove -f -f") { return "Ignores the lock and deletes any uncommitted changes; not undoable" }
-        if command.contains("worktree remove --force") { return "Deletes the uncommitted changes; not undoable" }
-        return nil
-    }
-
     private var actionColor: Color {
-        forceWarning != nil ? Theme.red : kept ? Theme.keptTitle : Theme.color(finding.verdict)
+        finding.warning != nil ? Theme.red : kept ? Theme.keptTitle : Theme.color(finding.verdict)
     }
 
     var body: some View {
@@ -1121,13 +1108,8 @@ struct FindingRow: View {
 
     private var panel: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if cleanable, finding.cleanup?.hasPrefix("docker volume rm") == true {
-                Text("Deletes the volume's data; not undoable")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.amber)
-            }
-            if cleanable, let forceWarning {
-                Text(forceWarning)
+            if cleanable, let warning = finding.warning {
+                Text(warning)
                     .font(.system(size: 12))
                     .foregroundStyle(Theme.red)
                     .fixedSize(horizontal: false, vertical: true)

@@ -136,7 +136,7 @@ A black page with white ink, grey annotations, and four signal lights that only 
 - **Caution Amber** (`caution-amber`): the review verdict and the low-space state. Ring verdict dots, the "to review" total, the popover heading and device status when under the limit, and the menu bar label when this Mac or any device is low.
 
 ### Tertiary
-- **Stop Red** (`stop-red`): danger and failure. The critical heading (under a quarter of the limit), unreachable devices, failed cleanups, config parse errors, Remove device, and the warning line plus Run on a forced cleanup (dirty or locked worktree).
+- **Stop Red** (`stop-red`): danger and failure. The critical heading (under a quarter of the limit), unreachable devices, failed cleanups, config parse errors, Remove device, and the warning line plus Run on a cleanup that loses data (dirty or locked worktree, a volume's contents, agent transcripts).
 
 ### Neutral
 - **Idle Grey** (`idle-grey`): the keep verdict. Small solid dots on in-use rows.
@@ -153,7 +153,7 @@ A black page with white ink, grey annotations, and four signal lights that only 
 ### Named Rules
 **The Signal Rule.** Green, amber, red and idle grey are reserved for verdict and status. A color that appears on screen answers "what verdict?" or "is something wrong?"; there is no brand accent and no decorative color.
 
-**The Consequence Color Rule.** An action's color is the color of what it does. Run and hover "Clean" take the row's verdict color (green on reclaimable, amber on review, Kept Title grey on an in-use row that loses nothing) and turn red when they force past uncommitted changes or a lock. Navigation and dismissal stay white or grey.
+**The Consequence Color Rule.** An action's color is the color of what it does. Run and hover "Clean" take the row's verdict color (green on reclaimable, amber on review, Kept Title grey on an in-use row that loses nothing) and turn red when the row carries a warning: the command loses uncommitted changes, a lock, a volume's data or transcripts. Navigation and dismissal stay white or grey.
 
 ## Typography
 
@@ -225,7 +225,7 @@ Words, not buttons.
 ### Finding Row (signature component)
 The ledger line.
 - **Closed:** verdict dot, title (white, or Kept Title for in-use rows), reason in Annotation Grey at 12pt, size right-aligned. Hovering a cleanable row washes it with `hover-wash` and swaps the size for "Clean" in the row's consequence color.
-- **Open:** background turns `open-panel`; under the title come the full reason, any warning (amber for Docker caveats, red for forced cleanups: "Deletes the uncommitted changes; not undoable"), the command in Command Grey mono, then `Run ⏎`, Cancel and Show in Finder.
+- **Open:** background turns `open-panel`; under the title come the full reason, the row's warning in red when its command loses data ("Deletes the uncommitted changes; not undoable", "Removes container api-db-1 and deletes the volume's data; not undoable"), the dim "Frees space in Docker's disk" note on a Mac, the command in Command Grey mono, then `Run ⏎`, Cancel and Show in Finder.
 - **Cleaning:** the reason is replaced by "Cleaning" in the verdict color and the size dims; the row keeps its height.
 - **Failed:** "Not cleaned:" and the reason in plain words under the row in red at 12pt ("it has uncommitted changes now"); the command's own output is the tooltip and, for keyboard and VoiceOver, a "Show output" text button in the open panel (dim mono under the command). When Docker is not running on this Mac and Docker Desktop is installed, the panel adds Open Docker; the scan's "Start Docker to see what it can clean" note gets the same button. A refused worktree is judged again at once and changes verdict where it stands (grey dot, "uncommitted changes", force command ready behind the red panel). Refused rows keep their place in the list until the popover closes, even once kept. On a device the reason column reads "checking again" until its rescan. The header adds "1 cleanup not done, see Worktrees" in red.
 - **Collapsed groups:** "1 more" or "3 in use" in grey with the hidden total, expanding in place to "Hide 3 in use".
@@ -254,7 +254,7 @@ The balance, written as a ledger sum.
 - **Keyboard:** ⌘1 to ⌘9 in both forms, menu closed or open.
 
 ### Navigation: Settings Sidebar
-- General, then an uppercase MACHINES overline, then one item per machine with free space trailing in its status color. Selected item gets `open-panel` with a 5pt radius. Add from tailnet (borderless menu) and Add by name sit below.
+- General, In use, then an uppercase MACHINES overline, then one item per machine with free space trailing in its status color. Selected item gets `open-panel` with a 5pt radius. Add from tailnet (borderless menu) and Add by name sit below.
 
 ### Inputs / Fields
 - **Style:** native `roundedBorder` text fields and steppers, small switches. Numbers right-aligned in tabular figures, with the unit in grey after the stepper. Paths and hosts in Mono Field.

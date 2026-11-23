@@ -31,6 +31,10 @@ public enum Verdict: String, Codable, Sendable, Comparable {
     }
 
     public static func < (lhs: Verdict, rhs: Verdict) -> Bool { lhs.rank < rhs.rank }
+
+    /// Never reclaimable, for a rule that guards data (changes, a lock, a volume's contents): Clean safe
+    /// must not run a command that loses work, whatever the config says.
+    var guarded: Verdict { max(self, .review) }
 }
 
 public struct Finding: Codable, Sendable, Identifiable {
@@ -44,6 +48,8 @@ public struct Finding: Codable, Sendable, Identifiable {
     public let verdict: Verdict
     /// The shell command that reclaims the space. Hoarder shows it and runs it only after the user confirms.
     public let cleanup: String?
+    /// What running `cleanup` loses that a rescan cannot bring back, shown in red before Run.
+    public var warning: String? = nil
 
     public var id: String { "\(category.rawValue):\(paths.first ?? title)" }
 }
@@ -100,4 +106,10 @@ public func formatBytes(_ bytes: Int64) -> String {
     let megabytes = (Double(bytes) / 1e6).rounded()
     if bytes > 0 && megabytes < 1 { return "< 1 MB" }
     return megabytes < 1000 ? "\(Int(megabytes)) MB" : String(format: "%.1f GB", Double(bytes) / 1e9)
+}
+
+/// "a", "a and b", "a, b and c".
+public func listed(_ items: [String]) -> String {
+    guard let last = items.last, items.count > 1 else { return items.first ?? "" }
+    return items.dropLast().joined(separator: ", ") + " and " + last
 }

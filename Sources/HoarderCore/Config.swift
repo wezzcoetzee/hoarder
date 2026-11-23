@@ -8,6 +8,8 @@ public struct Config: Codable, Sendable {
     public var staleWorktreeDays = 14
     /// node_modules in a project untouched for this long is reclaimable.
     public var idleNodeModulesDays = 30
+    /// What else counts as in use, beyond the two day counts above.
+    public var inUse = InUseRules()
     /// The menu bar turns amber and a notification is sent when free space drops below this.
     public var alertBelowGB = 40
     /// How often the menu bar app runs a full scan. Free space is checked every minute regardless.
@@ -29,6 +31,7 @@ public struct Config: Codable, Sendable {
         alertBelowGB = try container.decodeIfPresent(Int.self, forKey: .alertBelowGB) ?? defaults.alertBelowGB
         scanEveryMinutes = try container.decodeIfPresent(Int.self, forKey: .scanEveryMinutes) ?? defaults.scanEveryMinutes
         devices = try container.decodeIfPresent([Device].self, forKey: .devices) ?? defaults.devices
+        inUse = try container.decodeIfPresent(InUseRules.self, forKey: .inUse) ?? defaults.inUse
     }
 
     public static func load() throws -> Config {
@@ -45,19 +48,33 @@ public struct Config: Codable, Sendable {
     }
 
     /// Writes the settings that differ from the defaults, so the file stays short and a changed default
-    /// still reaches anyone who never touched that setting. Keys Config does not know are left as they
-    /// are, so a misspelling stays visible instead of being silently dropped.
+    /// still reaches anyone who never touched that setting. Nested groups (`inUse`) are compared key by
+    /// key the same way. Keys Config does not know are left as they are, so a misspelling stays visible
+    /// instead of being silently dropped.
     public func save(to url: URL = fileURL) throws {
-        var file =
+        let saved =
             (try? Data(contentsOf: url))
             .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
-        let mine = try Self.object(self), defaults = try Self.object(Config())
-        for (key, value) in mine {
-            file[key] = try Self.same(value, defaults[key]) ? nil : value
-        }
+        let file = try Self.changes(try Self.object(self), from: try Self.object(Config()), into: saved)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try JSONSerialization.data(withJSONObject: file, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
             .write(to: url, options: .atomic)
+    }
+
+    /// `file` with each of `mine` that differs from `defaults` written in and each that matches removed.
+    /// A group with fixed keys is merged key by key; a map that defaults to empty (`caches`) is written
+    /// whole, so a removed entry goes.
+    private static func changes(_ mine: [String: Any], from defaults: [String: Any], into file: [String: Any]) throws -> [String: Any] {
+        var file = file
+        for (key, value) in mine {
+            if let group = value as? [String: Any], let base = defaults[key] as? [String: Any], !base.isEmpty {
+                let nested = try changes(group, from: base, into: file[key] as? [String: Any] ?? [:])
+                file[key] = nested.isEmpty ? nil : nested
+            } else {
+                file[key] = try same(value, defaults[key]) ? nil : value
+            }
+        }
+        return file
     }
 
     private static func object(_ config: Config) throws -> [String: Any] {
@@ -86,6 +103,51 @@ public struct Config: Codable, Sendable {
     var existingRoots: [String] {
         projectRoots.map(expand).filter(exists)
     }
+}
+
+/// The rules that make a row in use, each set to the verdict it gives. A rule that guards data (changes,
+/// a lock, a volume's contents) never goes past review: the scanners treat "reclaimable" there as review,
+/// so Clean safe can never run a command that loses work.
+public struct InUseRules: Codable, Sendable, Equatable {
+    /// A worktree with uncommitted changes.
+    public var uncommittedWorktrees = Verdict.keep
+    public var lockedWorktrees = Verdict.keep
+    /// Untracked files or folders that do not count as changes, matched by name or by path inside the
+    /// worktree ("`.DS_Store`", "`.claude/`"). Removing such a worktree deletes them first.
+    public var ignoredUntracked = [".DS_Store"]
+    /// A Docker volume a container mounts, running or stopped.
+    public var mountedVolumes = Verdict.keep
+    /// A volume a registry container stores pushed images in.
+    public var registryVolumes = Verdict.keep
+    /// The BuildKit cache of a builder `docker buildx ls` still lists.
+    public var liveBuilderCache = Verdict.keep
+    /// Verdicts by cache name ("Claude Code transcripts"), replacing the built-in one.
+    public var caches: [String: Verdict] = [:]
+
+    public init() {}
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = InUseRules()
+        func read<T: Decodable>(_ key: CodingKeys, _ fallback: T) throws -> T {
+            try container.decodeIfPresent(T.self, forKey: key) ?? fallback
+        }
+        uncommittedWorktrees = try read(.uncommittedWorktrees, defaults.uncommittedWorktrees)
+        lockedWorktrees = try read(.lockedWorktrees, defaults.lockedWorktrees)
+        ignoredUntracked = try read(.ignoredUntracked, defaults.ignoredUntracked)
+        mountedVolumes = try read(.mountedVolumes, defaults.mountedVolumes)
+        registryVolumes = try read(.registryVolumes, defaults.registryVolumes)
+        liveBuilderCache = try read(.liveBuilderCache, defaults.liveBuilderCache)
+        caches = try read(.caches, defaults.caches)
+    }
+}
+
+/// A cache `InUseRules.caches` can name: its built-in verdict, and whether it has a command, without
+/// which it is never reclaimable.
+public struct CacheName: Sendable {
+    public let title: String
+    public let verdict: Verdict
+    public let cleanable: Bool
 }
 
 /// A machine Hoarder scans over SSH. Its scan runs there, so paths resolve on that machine.

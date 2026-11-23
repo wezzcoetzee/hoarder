@@ -28,7 +28,10 @@ enum Shell {
         timeout: TimeInterval = 300
     ) async -> Output {
         await withCheckedContinuation { continuation in
-            DispatchQueue.global().async {
+            // A thread of its own rather than a GCD worker: each command blocks while it reads, and a scan
+            // runs dozens at once. Blocked workers exhausted GCD's pool, so the stderr reads below never got
+            // a thread and the scan hung.
+            Thread {
                 let process = Process()
                 process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
                 process.arguments = [tool] + arguments
@@ -63,9 +66,11 @@ enum Shell {
                 nonisolated(unsafe) var errorData = Data()
                 let drained = DispatchGroup()
                 if !includeErrors {
-                    DispatchQueue.global().async(group: drained) {
+                    drained.enter()
+                    Thread {
                         errorData = errors.fileHandleForReading.readDataToEndOfFile()
-                    }
+                        drained.leave()
+                    }.start()
                 }
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
                 drained.wait()
@@ -75,7 +80,7 @@ enum Shell {
                         status: process.terminationStatus,
                         stdout: String(decoding: data, as: UTF8.self),
                         stderr: String(decoding: errorData, as: UTF8.self)))
-            }
+            }.start()
         }
     }
 

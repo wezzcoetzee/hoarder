@@ -30,7 +30,7 @@ What a generic disk cleaner cannot truthfully claim:
 - Lives in the menu bar. The label shows free space and turns amber below `alertBelowGB`; one notification per dip, Snooze silences for a day.
 - Free space is checked every minute; a full scan runs on an interval (default 60 min) and takes about 45s, mostly `du` over node_modules.
 - Popover: a device strip on top (⌘1 to ⌘9), a summary of safe and review totals with Clean safe, then sections (Caches, Worktrees, node_modules, Docker) of rows. Click a row to see its command, then Run. Kept rows can be force-cleaned behind a red warning.
-- Settings window: General (open at login, intervals, config file) and one page per machine (limit, project folders, Test connection, Remove). Saves to `~/.config/hoarder/config.json`, writing only non-defaults; goes read-only while the file does not parse.
+- Settings window: General (open at login, scan interval, config file), In use (the rules that make a row in use, each set to In use, Review or, for caches, Safe) and one page per machine (limit, project folders, Test connection, Remove). Saves to `~/.config/hoarder/config.json`, writing only non-defaults; goes read-only while the file does not parse.
 - Remote devices are reached with `ssh -o BatchMode=yes`; unreachable devices show a reason and its fix.
 - Setup can be driven by a coding agent via `.claude/skills/setup-hoarder`.
 
@@ -38,7 +38,7 @@ What a generic disk cleaner cannot truthfully claim:
 
 - Verdicts: **reclaimable** (nothing lost by deleting now), **review** (probably dead weight, look first), **keep** (in use; cleanable, never suggested). These three words and their meanings are fixed product terminology.
 - Clean safe runs every reclaimable row's command one at a time, after confirmation.
-- Rows with no command (Docker VM disk, app data, tmpfs `/tmp`) only show where they are.
+- Rows with no command (Docker VM disk, T3 Code data, tmpfs `/tmp`) only show where they are. A mounted Docker volume's command removes its container too.
 - Free space is the `df` figure, not Finder's (which counts purgeable space).
 - Not notarized; first launch needs Open Anyway or clearing quarantine.
 - Known gaps the UI must not paper over: tool-noise-only changes count as dirty, squash merges show as unmerged, pnpm/bun node_modules sizes overstate what deleting frees, Intel Mac devices need an Intel build.

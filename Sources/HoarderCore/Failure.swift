@@ -18,6 +18,9 @@ public func describeFailure(_ output: String) -> String {
         ("cannot remove a locked working tree", "it was locked since the scan"),
         ("volume is in use", "a container is using it now"),
         ("cannot connect to the docker daemon", KnownState.dockerNotRunning),
+        // A build (or gopls) writing into a cache while it is deleted: most of it is gone, the rest
+        // goes on a second run.
+        ("directory not empty", "something wrote to it while cleaning; run again"),
     ]
     if let (_, reason) = known.first(where: { text.contains($0.0) }) { return reason }
     // zsh says "zsh:1: command not found: pnpm", bash "bash: pnpm: command not found". zsh's is tried

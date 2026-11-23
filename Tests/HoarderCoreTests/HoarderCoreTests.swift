@@ -65,28 +65,75 @@ func forcesWorktreeRemovalOnlyPastWhatTheScanSaw(present: Bool, locked: Bool, di
     #expect(DockerScanner.parseSize("garbage") == nil)
 }
 
+private let containers = [
+    DockerScanner.Container(name: "registry", image: "registry:2", mounts: "infrastructure_registry-data", state: "exited"),
+    DockerScanner.Container(name: "api-db-1", image: "postgres:16", mounts: "postgres-data,/Users/dev/api", state: "running"),
+]
+
 @Test(arguments: [
-    // volume, links, expected verdict and command (nil verdict: no row)
-    ("infrastructure_registry-data", "0", Optional(Verdict.keep), String?.none),
+    // volume, links, expected verdict and command
+    ("infrastructure_registry-data", "1", Verdict.keep, Optional("docker rm -f registry && docker volume rm infrastructure_registry-data")),
     ("buildx_buildkit_ci-release0_state", "1", .keep, "docker buildx prune --builder ci-release -f"),
     ("buildx_buildkit_gone-checks0_state", "0", .review, "docker volume rm buildx_buildkit_gone-checks0_state"),
-    ("buildx_buildkit_gone-checks0_state", "1", .keep, nil),
-    ("postgres-data", "1", nil, nil),
+    ("postgres-data", "1", .keep, "docker rm -f api-db-1 && docker volume rm postgres-data"),
     ("old-data", "0", .review, "docker volume rm old-data"),
 ])
-func judgesVolumesByOwner(name: String, links: String, verdict: Verdict?, command: String?) {
+func judgesVolumesByOwner(name: String, links: String, verdict: Verdict, command: String?) {
     let volume = DockerScanner.Volume(name: name, size: "3GB", links: links)
-    let row = DockerScanner.classify(
-        volume, builderNodes: ["ci-release0": "ci-release"],
-        registryVolumes: ["infrastructure_registry-data"])
+    let row = DockerScanner.classify(volume, builderNodes: ["ci-release0": "ci-release"], containers: containers)
     #expect(row?.verdict == verdict)
     #expect(row?.cleanup == command)
 }
 
+@Test func namesTheContainerAVolumeGoesWith() {
+    let volume = DockerScanner.Volume(name: "postgres-data", size: "3GB", links: "1")
+    let row = DockerScanner.classify(volume, builderNodes: [:], containers: containers)
+    #expect(row?.detail == "mounted by api-db-1, running")
+    #expect(row?.warning == "Removes container api-db-1 and deletes the volume's data; not undoable")
+}
+
 @Test func neverOffersBuildKitVolumesWhenBuildersAreUnknown() {
     let volume = DockerScanner.Volume(name: "buildx_buildkit_gone0_state", size: "3GB", links: "0")
-    let row = DockerScanner.classify(volume, builderNodes: nil, registryVolumes: [])
+    let row = DockerScanner.classify(volume, builderNodes: nil, containers: [])
     #expect(row?.verdict == .keep && row?.cleanup == nil)
+}
+
+/// Clean safe runs every reclaimable row, so a rule guarding data set to reclaimable stops at review.
+@Test func rulesThatGuardDataNeverBecomeSafe() {
+    var rules = InUseRules()
+    rules.uncommittedWorktrees = .reclaimable
+    rules.mountedVolumes = .reclaimable
+    rules.liveBuilderCache = .reclaimable
+    let worktree = WorktreeScanner.Worktree(
+        repo: "r", gitDir: "/r/.git", entry: .init(path: "/wt", branch: "b"), present: true, dirty: true,
+        merged: true, pushed: true, tip: .distantPast)
+    #expect(WorktreeScanner.classify(worktree, staleAfterDays: 14, rules: rules).0 == .review)
+    let mounted = DockerScanner.classify(
+        .init(name: "postgres-data", size: "3GB", links: "1"), builderNodes: [:], containers: containers, rules: rules)
+    #expect(mounted?.verdict == .review)
+    // A builder's cache loses nothing a build cannot remake, so it may be safe.
+    let cache = DockerScanner.classify(
+        .init(name: "buildx_buildkit_ci0_state", size: "3GB", links: "1"), builderNodes: ["ci0": "ci"], containers: [],
+        rules: rules)
+    #expect(cache?.verdict == .reclaimable)
+}
+
+@Test func untrackedNoiseIsNotAChangeAndGoesBeforeTheRemove() {
+    let porcelain = ["?? .DS_Store", "?? .claude/", "?? docs/.DS_Store"].map { $0 + "\0" }.joined()
+    let ignoring = [".DS_Store", ".claude/"]
+    let (dirty, noise) = WorktreeScanner.changes(porcelain: porcelain, ignoring: ignoring)
+    #expect(!dirty && noise == [".DS_Store", ".claude/", "docs/.DS_Store"])
+    // A tracked change, a rename (followed by its old path) or other untracked file still counts.
+    #expect(WorktreeScanner.changes(porcelain: " M .DS_Store\0", ignoring: ignoring).dirty)
+    #expect(WorktreeScanner.changes(porcelain: "R  new.txt\0.DS_Store\0", ignoring: ignoring).dirty)
+    #expect(WorktreeScanner.changes(porcelain: "?? notes.txt\0?? .DS_Store\0", ignoring: ignoring).dirty)
+
+    let worktree = WorktreeScanner.Worktree(
+        repo: "r", gitDir: "/r/.git", entry: .init(path: "/wt", branch: "b"), present: true, dirty: false,
+        merged: true, pushed: true, tip: nil, noise: [".DS_Store", ".claude/"])
+    #expect(
+        WorktreeScanner.removeCommand(worktree)
+            == "rm -rf '/wt/.DS_Store' '/wt/.claude/' && git --git-dir='/r/.git' worktree remove '/wt'")
 }
 
 @Test func findsTmpfsByTheMountInEffect() {
@@ -125,6 +172,10 @@ private func finding(_ path: String, _ bytes: Int64) -> Finding {
     ("zsh:1: command not found: pnpm", "pnpm is not on the login shell's PATH"),
     ("bash: pnpm: command not found", "pnpm is not on the login shell's PATH"),
     ("rm: /home/dev/.cache/go-build/0a: Permission denied\n", "rm: ~/.cache/go-build/0a: Permission denied"),
+    (
+        "go: unlinkat /Users/dev/Library/Caches/go-build/00: directory not empty",
+        "something wrote to it while cleaning; run again"
+    ),
     ("", "exited with an error"),
 ])
 func describesFailuresInPlainWords(output: String, expected: String) {
@@ -240,4 +291,20 @@ func describesSSHFailuresInWordsThatSayWhatToDo(status: Int32, stderr: String, e
     // scanEveryMinutes went back to its default, so it leaves the file; the misspelling stays.
     #expect(saved.keys.sorted() == ["alertBelowGB", "alertBelowGb", "devices"])
     #expect(try JSONDecoder().decode(Config.self, from: Data(contentsOf: url)).devices == config.devices)
+}
+
+@Test func savesOnlyChangedInUseRulesAndDropsRemovedCaches() throws {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("hoarder-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: url) }
+    var config = Config()
+    config.inUse.lockedWorktrees = .review
+    config.inUse.caches = ["Go modules": .keep, "npm cache": .reclaimable]
+    try config.save(to: url)
+    config.inUse.caches["npm cache"] = nil
+    try config.save(to: url)
+    let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any] ?? [:]
+    let inUse = saved["inUse"] as? [String: Any] ?? [:]
+    #expect(inUse.keys.sorted() == ["caches", "lockedWorktrees"])
+    #expect(inUse["caches"] as? [String: String] == ["Go modules": "keep"])
+    #expect(try JSONDecoder().decode(Config.self, from: Data(contentsOf: url)).inUse == config.inUse)
 }
